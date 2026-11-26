@@ -5,6 +5,11 @@
  *   cuerpo: { imagen: "<jpeg en base64>", gramos: 450, modelo: "opus" | "sonnet", nota?: "con aceite" }
  *   respuesta: { plato, alimentos: [{ nombre, busqueda, gramos, confianza }], advertencias, modelo, uso }
  *
+ * POST /gasto  (misma cabecera)
+ *   cuerpo: { imagen: "<jpeg en base64>", hoy: "AAAA-MM-DD", modelo?: "opus" | "sonnet" }
+ *   respuesta: { fecha, actividad, reposo, total, dia_completo, notas, modelo, uso }
+ *   Lee la pantalla de calorías de la app Zepp (banda Helio Strap): consumo de actividad y en reposo.
+ *
  * La clave de la API de Anthropic vive solo acá (secreto ANTHROPIC_API_KEY). La app nunca la ve.
  * Las calorías NO las calcula Claude: la app busca cada alimento en su base local.
  */
@@ -60,6 +65,34 @@ const ESQUEMA = {
   additionalProperties: false,
 } as const;
 
+const SISTEMA_GASTO = `Leés capturas de pantalla de la app Zepp (banda Amazfit Helio Strap) para anotar el gasto de energía de un día.
+La pantalla de calorías muestra el consumo de actividad ("Activity consumption") en grande con su fecha, y más abajo el consumo en reposo ("Resting Consumption").
+Puede estar en inglés o en español ("Consumo por actividad", "Consumo en reposo").
+
+Reglas:
+- Copiá los números tal cual se ven, en kcal, sin separadores de miles (1,420 es 1420).
+- "fecha" es la fecha del día que muestra la pantalla, en formato AAAA-MM-DD. La pantalla no muestra el año: usá el año de la fecha de hoy que te dan, salvo que eso deje la fecha en el futuro (entonces es el año anterior). Si no se ve ninguna fecha, poné la de hoy.
+- Si un número no se ve, poné 0 y decilo en "notas".
+- "total" es actividad + reposo, o el total que muestre la pantalla si muestra uno.
+- "dia_completo" es false si la fecha es hoy (el día todavía no terminó), true si es un día anterior.
+- "notas": una frase corta solo si algo no está claro (otra pantalla, la vista semanal o mensual, números cortados). Si todo está claro, dejalo vacío.`;
+
+const ESQUEMA_GASTO = {
+  type: "object",
+  properties: {
+    fecha: { type: "string", description: "AAAA-MM-DD" },
+    actividad: { type: "integer" },
+    reposo: { type: "integer" },
+    total: { type: "integer" },
+    dia_completo: { type: "boolean" },
+    notas: { type: "string" },
+  },
+  required: ["fecha", "actividad", "reposo", "total", "dia_completo", "notas"],
+  additionalProperties: false,
+} as const;
+
+interface Gasto { fecha: string; actividad: number; reposo: number; total: number; dia_completo: boolean; notas: string }
+
 interface Alimento { nombre: string; busqueda: string; gramos: number; confianza: string }
 interface Resultado { plato: string; alimentos: Alimento[]; advertencias: string }
 
@@ -100,18 +133,58 @@ function ajustarGramos(alimentos: Alimento[], total: number): Alimento[] {
   return salida;
 }
 
+/** Lee la pantalla de calorías de Zepp: actividad, reposo y la fecha del día. */
+async function leerGasto(datos: { imagen?: string; modelo?: string; hoy?: string }, env: Env, cors: Record<string, string>): Promise<Response> {
+  const imagen = (datos.imagen || "").replace(/^data:image\/\w+;base64,/, "");
+  const modelo = MODELOS[datos.modelo || "opus"];
+  const hoy = /^\d{4}-\d{2}-\d{2}$/.test(datos.hoy || "") ? datos.hoy! : new Date().toISOString().slice(0, 10);
+  if (!imagen || imagen.length > MAX_IMAGEN_B64) return json({ error: "Falta la captura o es muy grande" }, 400, cors);
+  if (!modelo) return json({ error: "Modelo desconocido" }, 400, cors);
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  try {
+    const respuesta = await client.beta.messages.create({
+      model: modelo,
+      max_tokens: 4000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { effort: "low", format: { type: "json_schema", schema: ESQUEMA_GASTO } },
+      system: SISTEMA_GASTO,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imagen } },
+          { type: "text", text: `Fecha de hoy: ${hoy}.` },
+        ],
+      }],
+    });
+    if (respuesta.stop_reason === "refusal") return json({ error: "Claude no pudo leer esta captura" }, 422, cors);
+    if (respuesta.stop_reason === "max_tokens") return json({ error: "La respuesta quedó cortada; probá de nuevo" }, 502, cors);
+    const texto = respuesta.content.find((b) => b.type === "text");
+    if (!texto || texto.type !== "text") return json({ error: "Respuesta vacía" }, 502, cors);
+    const g = JSON.parse(texto.text) as Gasto;
+    return json({ ...g, modelo: respuesta.model, uso: { entrada: respuesta.usage.input_tokens, salida: respuesta.usage.output_tokens } }, 200, cors);
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) return json({ error: "La clave de la API de Anthropic no es válida" }, 502, cors);
+    if (error instanceof Anthropic.RateLimitError) return json({ error: "Demasiados pedidos; esperá un momento" }, 429, cors);
+    if (error instanceof Anthropic.BadRequestError) return json({ error: "Pedido rechazado: " + error.message }, 400, cors);
+    if (error instanceof Anthropic.APIError) return json({ error: `Error de la API (${error.status})` }, 502, cors);
+    return json({ error: "Error inesperado: " + String(error) }, 500, cors);
+  }
+}
+
 export default {
   async fetch(pedido: Request, env: Env): Promise<Response> {
     const cors = cabecerasCors(pedido.headers.get("Origin"), env);
     if (pedido.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(pedido.url);
-    if (pedido.method !== "POST" || url.pathname !== "/analizar") return json({ error: "No existe" }, 404, cors);
+    if (pedido.method !== "POST" || (url.pathname !== "/analizar" && url.pathname !== "/gasto")) return json({ error: "No existe" }, 404, cors);
 
     const auth = pedido.headers.get("Authorization") || "";
     if (!mismaClave(auth.replace(/^Bearer\s+/i, ""), env.CLAVE_APP)) return json({ error: "Clave de la app incorrecta" }, 401, cors);
 
-    let datos: { imagen?: string; gramos?: number; modelo?: string; nota?: string };
+    let datos: { imagen?: string; gramos?: number; modelo?: string; nota?: string; hoy?: string };
     try { datos = await pedido.json(); } catch { return json({ error: "Cuerpo inválido" }, 400, cors); }
+    if (url.pathname === "/gasto") return leerGasto(datos, env, cors);
     const imagen = (datos.imagen || "").replace(/^data:image\/\w+;base64,/, "");
     const gramos = Math.round(Number(datos.gramos));
     const modelo = MODELOS[datos.modelo || "opus"];

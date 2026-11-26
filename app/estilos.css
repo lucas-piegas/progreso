@@ -341,3 +341,17 @@ optgroup { font-style: normal; }
 .linea-anot { display: grid; grid-template-columns: 48px auto 52px auto 64px auto 36px; gap: 5px; align-items: center; }
 .linea-anot input { min-height: 40px; padding: 6px 4px; text-align: center; }
 .linea-anot span { color: var(--suave); font-size: 14px; }
+
+/* gasto y balance */
+.gasto-cabeza { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.gasto-cabeza h2 { margin: 0; }
+.gasto-fila { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--borde); }
+.gasto-cabeza + .gasto-fila { margin-top: 8px; }
+.gasto-fila small { display: block; font-size: 12px; color: var(--suave); }
+.gasto-fila.usado b, .gasto-fila.total b { color: var(--acento); }
+.gasto-fila.total { border-top: 2px solid var(--borde); }
+.gasto-fila.total span, .gasto-fila.balance span { font-weight: 600; }
+.gasto-fila.balance b { font-size: 20px; }
+.gasto-fila.balance.deficit b { color: var(--ok); }
+.gasto-fila.balance.superavit b { color: var(--test); }
+.captura { width: 100%; max-height: 320px; object-fit: contain; border-radius: 12px; margin-top: 10px; background: #000; }

@@ -9,4 +9,4 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Páginas que pueden llamar al intermediario (separadas por coma).
-ORIGENES = "https://lucas-piegas.github.io,http://localhost:8765"
+ORIGENES = "https://lucas-piegas.github.io,http://localhost:8765,http://localhost:8767"

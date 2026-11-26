@@ -36,6 +36,7 @@ function pintar() {
     <b class="bloque-titulo">${fmt(Math.abs(co.resto), 0)} kcal ${pasado ? 'de más' : 'restantes'}</b>
     <span class="progreso ${pasado ? 'pasado' : ''}"><i style="width:${Math.min(100, co.comido / (co.objetivo || 1) * 100)}%"></i></span>
     <span class="nota">Proteína ${redondo(co.p)} de ${redondo(co.pObj)} g</span>
+    ${co.ayer ? `<span class="nota">Ayer: gastaste ${fmt(co.ayer.gasto, 0)} kcal y comiste ${fmt(co.ayer.comido, 0)}. Balance ${co.ayer.balance > 0 ? '+' : co.ayer.balance < 0 ? '−' : ''}${fmt(Math.abs(co.ayer.balance), 0)} kcal.</span>` : ''}
     <div class="dos"><button class="boton" data-accion="comer">Agregar comida</button><button class="boton secundario" data-ir="comida">Ver el diario</button></div></div>`;
 
   // Medir: en semana de tests, lo que falta; siempre, el peso y el HRV del día.

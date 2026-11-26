@@ -55,6 +55,7 @@
         </div>
         <div class="macros" id="macros"></div>
       </div>
+      <div class="tarjeta" id="gastoDia"></div>
       <div id="comidas"></div>
     </section>
 
@@ -265,6 +266,28 @@
   </div>
   <button class="boton" id="mioGuardar">Guardar</button>
   <button class="boton peligro" id="mioBorrar" hidden>Borrar</button>
+</div>
+
+<div class="hoja" id="hojaGasto" hidden>
+  <div class="hoja-cabeza"><button class="icono" data-cerrar aria-label="Cerrar">✕</button><strong>Gasto del día</strong><span></span></div>
+  <div class="tarjeta">
+    <p class="nota">Captura de la app Zepp: Calorías, vista D (día). Mejor a la mañana, del día anterior completo.</p>
+    <label class="boton secundario">Elegir la captura<input type="file" id="gaArchivo" accept="image/*" hidden></label>
+    <img id="gaVista" class="captura" alt="" hidden>
+    <button class="boton" id="gaLeer" hidden>Leer la captura</button>
+    <p class="nota" id="gaEstado"></p>
+  </div>
+  <div class="tarjeta">
+    <h2>Datos del día</h2>
+    <label>Fecha<input id="gaFecha" type="date"></label>
+    <div class="campos dos-col">
+      <label>Reposo, Zepp (kcal)<input id="gaReposo" type="number" inputmode="numeric" placeholder="1420"></label>
+      <label>Actividad, Zepp (kcal)<input id="gaActividad" type="number" inputmode="numeric" placeholder="350"></label>
+    </div>
+    <p class="nota" id="gaAviso"></p>
+    <button class="boton" id="gaGuardar">Guardar</button>
+    <button class="boton peligro" id="gaBorrar" hidden>Borrar el gasto de este día</button>
+  </div>
 </div>
 
 <!-- ===================== HOJAS DE ENTRENO ===================== -->

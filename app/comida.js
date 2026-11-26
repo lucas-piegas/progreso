@@ -10,6 +10,7 @@ let ajustes = guardado.leer('ajustes', { kcal: 2000, p: 120, c: 220, g: 65 });
 let mios = guardado.leer('mios', []);
 let recientes = guardado.leer('recientes', []);
 let favoritos = guardado.leer('favoritos', []);
+let gastos = guardado.leer('gastos', {}); // 'AAAA-MM-DD' → { reposo, actividad, origen: 'captura' | 'mano', diaCompleto }
 
 /* ---------- fechas ---------- */
 let fecha = new Date();
@@ -131,6 +132,7 @@ function pintarHoy() {
     return `<div class="tarjeta comida"><div class="comida-cabeza"><strong>${c}</strong><span><b>${redondo(sub.k)} kcal</b><button data-agregar="${c}">+ Agregar</button></span></div>` +
       items.map(({ e, i }) => `<button class="item" data-entrada="${i}"><span class="nombre">${esc(e.n)}<small>${esc(textoCantidad(e))}</small></span><span class="kcal">${redondo(e.k)}</span></button>`).join('') + '</div>';
   }).join('') + (lista.length ? '' : `<button class="boton secundario" id="copiarAyer">Copiar lo del día anterior</button>`);
+  pintarGasto();
 }
 function textoCantidad(e) {
   return e.porNombre === 'g' ? `${uno(e.cant)} g` : `${uno(e.cant)} × ${e.porNombre} · ${redondo(e.gramos)} g`;
@@ -564,18 +566,127 @@ $('#mioGuardar').onclick = () => {
 };
 $('#mioBorrar').onclick = () => { mios.splice(mioEditando, 1); guardado.escribir('mios', mios); cerrarHoja(); pintarAjustes(); };
 
+/* ---------- gasto del día y balance ---------- */
+// El basal sale de dos fuentes y se usa el promedio: el «reposo» que muestra Zepp (banda Helio Strap)
+// y la fórmula de Mifflin-St Jeor con el perfil de «Calcular mi objetivo» y el último peso de Medir.
+function pesoAl(k) {
+  const l = window.Medir ? window.Medir.de('peso').filter((r) => r.fecha <= k) : [];
+  if (l.length) return { kg: l[l.length - 1].valor, de: 'Medir' };
+  const pf = ajustes.perfil || {};
+  return pf.peso ? { kg: +pf.peso, de: 'perfil' } : null;
+}
+function basalFormula(k) {
+  const pf = ajustes.perfil || {};
+  const peso = pesoAl(k);
+  if (!pf.sexo || !pf.edad || !pf.altura || !peso) return null;
+  return { kcal: Math.round(10 * peso.kg + 6.25 * pf.altura - 5 * pf.edad + (pf.sexo === 'h' ? 5 : -161)), peso };
+}
+// Todos los números del día: los dos basales, el usado, la actividad, el gasto, lo comido y el balance.
+function balanceDe(k) {
+  const g = gastos[k];
+  if (!g) return null;
+  const f = basalFormula(k);
+  const basal = g.reposo > 0 && f ? Math.round((g.reposo + f.kcal) / 2) : g.reposo > 0 ? g.reposo : f ? f.kcal : 0;
+  const gasto = basal + (g.actividad || 0);
+  const comido = totales(entradasDe(k)).k;
+  return { ...g, formula: f, basal, gasto, comido, balance: comido - gasto };
+}
+function pintarGasto() {
+  const k = claveFecha(fecha);
+  const b = balanceDe(k);
+  const caja = $('#gastoDia');
+  if (!b) {
+    caja.innerHTML = `<div class="gasto-cabeza"><h2>Gasto y balance</h2></div>
+      <p class="nota">Cargá la captura de calorías de Zepp para ver cuánto gastaste y el balance del día.</p>
+      <button class="boton secundario" id="abrirGasto">Cargar el gasto del día</button>`;
+    return;
+  }
+  const n = (x) => fmt(x, 0);
+  const f = b.formula;
+  const fila = (nombre, valor, detalle = '', cls = '') => `<div class="gasto-fila ${cls}"><span>${nombre}${detalle ? `<small>${detalle}</small>` : ''}</span><b>${valor}</b></div>`;
+  caja.innerHTML = `<div class="gasto-cabeza"><h2>Gasto y balance</h2><button class="chip" id="abrirGasto">Editar</button></div>
+    ${fila('Basal de Zepp', b.reposo > 0 ? n(b.reposo) : '—', 'reposo, de la banda')}
+    ${fila('Basal por fórmula', f ? n(f.kcal) : '—', f ? `Mifflin-St Jeor, ${fmt(f.peso.kg, 1)} kg (${f.peso.de})` : 'completá el perfil en Objetivo y alimentos')}
+    ${fila('Basal usado', n(b.basal), b.reposo > 0 && f ? 'promedio de los dos' : 'el único que hay', 'usado')}
+    ${fila('Actividad', n(b.actividad || 0), 'de la banda')}
+    ${fila('Gasto del día', n(b.gasto), '', 'total')}
+    ${fila('Comido', n(b.comido))}
+    ${fila('Balance', (b.balance > 0 ? '+' : b.balance < 0 ? '−' : '') + n(Math.abs(b.balance)), b.balance < 0 ? 'déficit' : b.balance > 0 ? 'superávit' : 'justo', 'balance ' + (b.balance < 0 ? 'deficit' : 'superavit'))}
+    ${b.diaCompleto === false ? '<p class="nota">La captura es de un día sin terminar: el gasto real va a ser mayor.</p>' : ''}`;
+}
+$('#gastoDia').addEventListener('click', (e) => { if (e.target.id === 'abrirGasto') abrirGasto(claveFecha(fecha)); });
+
+let gastoFoto = null;
+function abrirGasto(k) {
+  gastoFoto = null;
+  const g = gastos[k] || {};
+  $('#gaVista').hidden = true; $('#gaLeer').hidden = true; $('#gaEstado').textContent = ''; $('#gaAviso').textContent = '';
+  $('#gaFecha').value = k;
+  $('#gaReposo').value = g.reposo || ''; $('#gaActividad').value = g.actividad ?? '';
+  $('#gaBorrar').hidden = !gastos[k];
+  abrirHoja('#hojaGasto');
+}
+$('#gaArchivo').onchange = async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    gastoFoto = await achicarFoto(f);
+    $('#gaVista').src = gastoFoto; $('#gaVista').hidden = false; $('#gaLeer').hidden = false;
+    $('#gaEstado').textContent = '';
+  } catch (e) { avisar('No se pudo leer la imagen'); }
+  ev.target.value = '';
+};
+$('#gaLeer').onclick = async () => {
+  if (!confFoto.url || !confFoto.clave) guardarConfFoto();
+  if (!confFoto.url || !confFoto.clave) return avisar('Primero cargá la dirección y la clave en Comida → Objetivo y alimentos');
+  const boton = $('#gaLeer');
+  boton.disabled = true; boton.textContent = 'Leyendo…';
+  $('#gaEstado').textContent = 'Claude está leyendo la captura. Tarda unos segundos.';
+  try {
+    const r = await fetch(confFoto.url + '/gasto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + confFoto.clave },
+      body: JSON.stringify({ imagen: gastoFoto.split(',')[1], hoy: claveFecha(new Date()), modelo: confFoto.modelo }),
+    });
+    const d = await r.json().catch(() => ({ error: 'Respuesta inválida (' + r.status + ')' }));
+    if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
+    $('#gaFecha').value = d.fecha; $('#gaReposo').value = d.reposo || ''; $('#gaActividad').value = d.actividad ?? '';
+    $('#gaFecha').dataset.diaCompleto = String(d.dia_completo);
+    $('#gaEstado').textContent = 'Revisá los números y la fecha antes de guardar.';
+    $('#gaAviso').textContent = [d.dia_completo ? '' : 'Es la captura de hoy: el día no terminó.', d.notas].filter(Boolean).join(' ');
+  } catch (e) {
+    $('#gaEstado').textContent = 'No se pudo leer: ' + e.message + '. Podés escribir los números a mano.';
+  } finally { boton.disabled = false; boton.textContent = 'Leer la captura'; }
+};
+$('#gaGuardar').onclick = () => {
+  const k = $('#gaFecha').value;
+  const reposo = Math.round(aNumero($('#gaReposo').value)) || 0;
+  const actividad = Math.round(aNumero($('#gaActividad').value)) || 0;
+  if (!k) return avisar('Poné la fecha');
+  if (!(reposo > 0) && !(actividad > 0)) return avisar('Poné el reposo o la actividad');
+  const dc = $('#gaFecha').dataset.diaCompleto;
+  gastos[k] = { reposo, actividad, origen: gastoFoto ? 'captura' : 'mano', diaCompleto: dc ? dc === 'true' : k < claveFecha(new Date()) };
+  delete $('#gaFecha').dataset.diaCompleto;
+  guardado.escribir('gastos', gastos);
+  cerrarHoja(); fecha = fechaDeClave(k); pintarHoy();
+  avisar(`Gasto del ${textoFecha(fecha).toLowerCase()} guardado`);
+};
+$('#gaBorrar').onclick = () => {
+  delete gastos[$('#gaFecha').value]; guardado.escribir('gastos', gastos);
+  cerrarHoja(); pintarHoy(); avisar('Gasto borrado');
+};
+
 /* ---------- copia de seguridad (la arma hoy.js con las tres partes) ---------- */
-function datos() { return { diario, ajustes, mios, recientes, favoritos }; }
+function datos() { return { diario, ajustes, mios, recientes, favoritos, gastos }; }
 function restaurar(d) {
-  ({ diario, ajustes, mios, recientes, favoritos } = { diario: {}, ajustes, mios: [], recientes: [], favoritos: [], ...d });
-  Object.entries({ diario, ajustes, mios, recientes, favoritos }).forEach(([k, v]) => guardado.escribir(k, v));
+  ({ diario, ajustes, mios, recientes, favoritos, gastos } = { diario: {}, ajustes, mios: [], recientes: [], favoritos: [], gastos: {}, ...d });
+  Object.entries({ diario, ajustes, mios, recientes, favoritos, gastos }).forEach(([k, v]) => guardado.escribir(k, v));
   pintarHoy();
 }
 
 /* ---------- lo que usa la pantalla Hoy ---------- */
 function resumenHoy() {
   const t = totales(entradasDe(claveFecha(new Date())));
-  return { comido: t.k, objetivo: ajustes.kcal, resto: ajustes.kcal - t.k, p: t.p, pObj: ajustes.p };
+  return { comido: t.k, objetivo: ajustes.kcal, resto: ajustes.kcal - t.k, p: t.p, pObj: ajustes.p, ayer: balanceDe(claveFecha(new Date(Date.now() - 864e5))) };
 }
 function agregar() {
   fecha = new Date();
