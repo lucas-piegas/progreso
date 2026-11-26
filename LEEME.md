@@ -1,7 +1,39 @@
-# Calorías — contador personal para iPhone
+# Progreso: comida, entreno y mediciones
 
-App web instalable (PWA). No tiene suscripción ni cuentas. El diario vive solo en el iPhone.
-Todas las búsquedas son locales: la app no consulta internet para buscar.
+App web instalable (PWA) para el iPhone. Junta en un solo lugar las tres partes del plan:
+
+- **Hoy:** la franja de las 8 semanas, la sesión del día, las calorías restantes y el peso y el HRV del día.
+- **Comida:** el contador de calorías y macros (antes la app Calorías, repo `lucas-piegas/calorias`).
+- **Entreno:** el plan de 8 semanas (antes la app Entreno, repo `lucas-piegas/entreno`). Se anota al terminar:
+  series × repeticiones × kg por ejercicio. La rutina se edita desde la sesión de cada día («Editar la rutina»).
+- **Medir:** CMJ, drop jump (RSI), velocidad de sentadilla, 1RM de sentadilla y de press de banca,
+  peso, HRV y VO2 máx. Cada medición queda atada a su semana del plan, para comparar las etapas.
+  Los saltos y la sentadilla se miden con un video en cámara lenta (el medidor de la sesión del 24/11/2026).
+
+No tiene suscripción ni cuentas. Todo vive solo en el iPhone. Las búsquedas de alimentos son locales.
+
+## Cómo está armada
+
+| Archivo de `app/` | Qué hace |
+|---|---|
+| `nucleo.js` | Utilidades, guardado, hojas, pestañas y la etapa del plan (en qué semana estamos). |
+| `comida.js` | La sección Comida. Guarda con el prefijo `cc.`, el mismo de la app Calorías. |
+| `entreno.js` | La sección Entreno. Guarda con el prefijo `en.`, el mismo de la app Entreno. |
+| `plan.js`, `ejercicios.js` | El plan de 8 semanas y las fichas de los ejercicios. El inicio (`inicio`) define las fechas de cada semana. |
+| `medir.js` | La sección Medir y el medidor con video. Guarda con el prefijo `me.`. |
+| `hoy.js` | La pantalla Hoy, los ajustes y la copia de seguridad de las tres partes. |
+
+Los cambios a la rutina se guardan aparte (`en.rutina`), sobre una copia del plan. Plan → «Volver al plan original» los borra.
+Un CMJ guardado en una semana de tests (1, 4 y 8) se copia al test «Salto vertical» de Entreno, si es el mejor.
+`referencia/medidor-saltos.html` es el medidor original, guardado como referencia.
+
+## Pasar los datos de las apps viejas
+
+Cada app instalada guarda sus datos aparte, aunque estén en el mismo teléfono. Para pasarlos:
+1. En la app Calorías: Ajustes → Exportar.
+2. En la app Entreno: Plan → Exportar.
+3. En Progreso: tocá el engranaje de Hoy → Importar, una vez con cada archivo.
+El peso de Calorías pasa a Medir.
 
 ## Qué hay
 
@@ -34,7 +66,7 @@ python herramientas/bajar_off.py datos/off/off_productos.csv.gz datos/off/off.js
 python -I herramientas/construir_base.py datos/usda app/alimentos.json
 ```
 
-Después subir `VERSION` en `app/sw.js` para que el iPhone baje las bases nuevas.
+Después subir `VERSION` en `app/sw.js` para que el iPhone baje la versión nueva. Vale para cualquier cambio de `app/`.
 Los scripts que usan `pypdf` o `duckdb` corren sin `-I` (están instalados con `pip --user`).
 
 ## Probar en la PC
@@ -66,4 +98,4 @@ en línea. Sin conexión, avisa y ofrece cargarlo a mano.
 
 ## Copia de seguridad
 
-Ajustes → Exportar genera un `.json` con todo el diario. Importar lo restaura.
+Engranaje de Hoy → Exportar genera un `.json` con comida, entreno y mediciones. Importar lo restaura.

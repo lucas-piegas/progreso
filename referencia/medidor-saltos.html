@@ -1,0 +1,845 @@
+<title>Medidor de Saltos</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: app de una columna para el pulgar (máx. 560 px). Vistas: inicio, medir, resultado, historial. */
+:root {
+  --bg: #eef1f0;
+  --surface: #ffffff;
+  --sunken: #e3e8e7;
+  --line: #cdd5d4;
+  --fg: #142024;
+  --muted: #5a6a6e;
+  --accent: #136f86;
+  --accent-ink: #ffffff;
+  --m-ct: #7a4fc4;
+  --m-to: #c27a0e;
+  --m-ld: #137a5a;
+  --warn-bg: #fff3d6; --warn-fg: #7a5200;
+  --ok-bg: #dcf3e8; --ok-fg: #0f5c40;
+  --bad-bg: #fbe1dd; --bad-fg: #8f2a1c;
+  --stage: #0b1214;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1719; --surface: #162124; --sunken: #0b1214; --line: #2a3a3e;
+    --fg: #e4eeef; --muted: #93a6aa; --accent: #4cb8d4; --accent-ink: #062027;
+    --m-ct: #b08cf0; --m-to: #f0ad45; --m-ld: #4fd1a0;
+    --warn-bg: #3a2e10; --warn-fg: #f4cf7a; --ok-bg: #123a2b; --ok-fg: #8fe0bd;
+    --bad-bg: #3d1a15; --bad-fg: #f2a497; --stage: #05090a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1719; --surface: #162124; --sunken: #0b1214; --line: #2a3a3e;
+  --fg: #e4eeef; --muted: #93a6aa; --accent: #4cb8d4; --accent-ink: #062027;
+  --m-ct: #b08cf0; --m-to: #f0ad45; --m-ld: #4fd1a0;
+  --warn-bg: #3a2e10; --warn-fg: #f4cf7a; --ok-bg: #123a2b; --ok-fg: #8fe0bd;
+  --bad-bg: #3d1a15; --bad-fg: #f2a497; --stage: #05090a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px 40px;
+  -webkit-text-size-adjust: 100%;
+}
+.app { max-width: 560px; margin: 0 auto; }
+.view { display: grid; gap: 14px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.45rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.1rem; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small-text { font-size: 0.85rem; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.between { justify-content: space-between; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+button, .btn {
+  font: inherit; font-weight: 600; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--sunken); color: var(--fg); padding: 10px 14px; min-height: 46px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: 0.45; cursor: default; }
+.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.ghost { background: transparent; }
+.danger { color: var(--bad-fg); }
+.sm { min-height: 36px; padding: 6px 12px; font-size: 0.88rem; }
+.wide { width: 100%; }
+.big-btn { min-height: 58px; font-size: 1.05rem; }
+input[type="number"], input[type="text"], select {
+  font: inherit; font-size: 16px; color: var(--fg); background: var(--sunken); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; min-height: 46px; width: 100%;
+}
+.hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.fields label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex-wrap: wrap; }
+.seg button { flex: 1; border: 0; border-radius: 0; background: transparent; min-height: 40px; padding: 6px 10px; font-weight: 500; font-size: 0.9rem; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.note { border-radius: 10px; padding: 9px 12px; font-size: 0.9rem; }
+.note.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.note.ok { background: var(--ok-bg); color: var(--ok-fg); }
+.note.bad { background: var(--bad-bg); color: var(--bad-fg); }
+
+/* Inicio */
+.athlete-btn { justify-content: space-between; width: 100%; background: var(--surface); }
+.athlete-btn .who { font-family: var(--f-display); font-size: 1.15rem; }
+.alist { display: grid; gap: 6px; }
+.alist button { justify-content: flex-start; background: var(--surface); }
+.alist button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tests { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tcard { display: grid; gap: 6px; text-align: left; justify-items: start; align-content: start; padding: 14px; background: var(--surface); border-radius: var(--r); min-height: 132px; }
+.tcard .tn { font-family: var(--f-display); font-size: 1.2rem; }
+.tcard .tl2 { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+.tcard .tv { font-family: var(--f-mono); font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: auto; }
+.tcard .tv small { font-size: 0.78rem; font-weight: 500; color: var(--muted); }
+.tcard .tb { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+.tcard .go { font-size: 0.8rem; color: var(--accent); font-weight: 600; }
+
+/* Medir */
+.mbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.mbar .t { min-width: 0; text-align: center; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick { display: grid; gap: 12px; text-align: center; padding: 28px 16px; }
+.pick ol { text-align: left; margin: 0; padding-left: 1.2em; display: grid; gap: 4px; color: var(--muted); font-size: 0.92rem; }
+.stage {
+  position: relative; background: var(--stage); border-radius: var(--r); overflow: hidden;
+  height: 50vh; height: 50dvh; min-height: 240px; width: 100%; touch-action: none;
+  user-select: none; -webkit-user-select: none;
+}
+.stage video { width: 100%; height: 100%; object-fit: contain; display: block; transform-origin: 50% 50%; pointer-events: none; }
+.hud { position: absolute; left: 8px; top: 8px; right: 8px; display: flex; justify-content: space-between; gap: 8px; pointer-events: none; font-family: var(--f-mono); font-size: 0.75rem; color: #ffffff; }
+.hud span { background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 6px; }
+.zoom-btn { position: absolute; right: 8px; bottom: 8px; min-height: 38px; padding: 4px 12px; background: rgba(0,0,0,0.6); color: #ffffff; border-color: rgba(255,255,255,0.25); font-family: var(--f-mono); }
+.scrub { width: 100%; accent-color: var(--accent); height: 34px; margin: 0; }
+.tl { position: relative; height: 8px; background: var(--sunken); border-radius: 4px; }
+.tl i { position: absolute; top: -4px; width: 4px; height: 16px; border-radius: 2px; transform: translateX(-2px); }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.steps button { font-family: var(--f-mono); font-size: 1.05rem; min-height: 50px; }
+.instr { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; align-items: start; }
+.instr .dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 4px; }
+.instr strong { display: block; font-family: var(--f-display); font-size: 1.1rem; }
+.markrow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
+
+/* Resultado */
+.hero-num { font-family: var(--f-mono); font-size: 3.2rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.hero-num small { font-size: 1.1rem; color: var(--muted); font-weight: 500; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.tiles div { background: var(--sunken); border-radius: 10px; padding: 9px 11px; }
+.tiles .v { font-family: var(--f-mono); font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.tiles .k { font-size: 0.75rem; color: var(--muted); }
+.mk { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.mk:last-child { border-bottom: 0; }
+.mk .dot { width: 12px; height: 12px; border-radius: 50%; }
+
+/* Historial */
+.hitem { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.hitem:last-child { border-bottom: 0; }
+.hitem .hv { font-family: var(--f-mono); font-weight: 700; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.hitem .hd { font-size: 0.82rem; color: var(--muted); grid-column: 1 / -1; }
+.pill { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--sunken); color: var(--muted); margin-right: 6px; }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 600; z-index: 20; max-width: calc(100% - 32px); }
+details summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; padding: 4px 0; }
+pre.diag { font-family: var(--f-mono); font-size: 0.72rem; background: var(--sunken); padding: 10px; border-radius: 8px; overflow-x: auto; white-space: pre; margin: 8px 0 0; max-height: 240px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+
+  <!-- ============ INICIO ============ -->
+  <section class="view" id="vHome">
+    <div class="row between">
+      <h1>Medidor de Saltos</h1>
+      <span class="label" id="syncState">Cargando…</span>
+    </div>
+    <div class="note warn" id="offlineNote" hidden>No hay guardado en este dispositivo. Los resultados se pierden al cerrar. Usá "Copiar todo" en el historial.</div>
+
+    <div class="card" id="firstAthlete" hidden>
+      <h2>¿Quién va a saltar?</h2>
+      <p class="muted">Agregá el primer atleta. Puede ser tu nombre.</p>
+      <div class="row" style="flex-wrap: nowrap;">
+        <input id="firstName" type="text" placeholder="Nombre" autocomplete="off">
+        <button type="button" class="primary" id="firstAdd">Agregar</button>
+      </div>
+    </div>
+
+    <div id="athleteBox" hidden>
+      <button type="button" class="athlete-btn" id="athleteToggle" aria-expanded="false">
+        <span><span class="label">Atleta</span><br><span class="who" id="athleteName">—</span></span>
+        <span class="muted small-text">Cambiar ▾</span>
+      </button>
+      <div class="card" id="athletePanel" hidden style="margin-top: 8px;">
+        <div class="alist" id="athleteList"></div>
+        <div class="row" style="flex-wrap: nowrap;">
+          <input id="newName" type="text" placeholder="Nuevo atleta" autocomplete="off">
+          <button type="button" id="newAdd">Agregar</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="label" style="margin-bottom: 8px;">Nueva medición</p>
+      <div class="tests" id="testCards"></div>
+    </div>
+
+    <button type="button" class="big-btn" id="goHistory">Ver historial</button>
+
+    <details class="card" id="settings">
+      <summary>Ajustes</summary>
+      <div class="fields" style="margin-top: 10px;">
+        <label for="capFps">fps de grabación
+          <select id="capFps">
+            <option value="240">240 (Slo-mo)</option>
+            <option value="120">120</option>
+            <option value="60">60</option>
+            <option value="30">30</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted small-text" style="margin-top: 8px;">En la parte lenta de un Slo-mo, cada cuadro vale 1/240 s. Cambialo solo si grabás a otra velocidad.</p>
+    </details>
+  </section>
+
+  <!-- ============ MEDIR ============ -->
+  <section class="view" id="vMeasure" hidden>
+    <div class="mbar">
+      <button type="button" class="sm ghost" id="mExit">← Salir</button>
+      <span class="t" id="mTitle">CMJ</span>
+      <span class="label" id="mStep"></span>
+    </div>
+
+    <div class="card pick" id="mPick">
+      <h2>Elegí el video</h2>
+      <label class="btn primary big-btn" for="file">Elegir video</label>
+      <input class="hidden-input" id="file" type="file" accept="video/*,.mov,.mp4,.m4v">
+      <ol>
+        <li>Grabá en Slo-mo, con el iPhone quieto.</li>
+        <li>Para saltos, la cámara a la altura de los pies.</li>
+        <li>Un video puede tener varios saltos. Los medís uno por uno.</li>
+      </ol>
+      <p class="muted small-text" id="pickStatus"></p>
+    </div>
+
+    <div id="mWork" class="view" hidden>
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted preload="auto"></video>
+        <div class="hud"><span id="hudFrame">0</span><span id="hudShown"></span></div>
+        <button type="button" class="zoom-btn" id="zoomBtn">Zoom 1×</button>
+      </div>
+      <input class="scrub" id="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Posición en el video">
+      <div class="tl" id="tl" aria-hidden="true"></div>
+      <div class="steps">
+        <button type="button" data-step="-10" aria-label="Retroceder 10 cuadros">−10</button>
+        <button type="button" data-step="-1" aria-label="Retroceder 1 cuadro">−1</button>
+        <button type="button" data-step="1" aria-label="Avanzar 1 cuadro">+1</button>
+        <button type="button" data-step="10" aria-label="Avanzar 10 cuadros">+10</button>
+      </div>
+      <div class="card">
+        <div class="instr">
+          <span class="dot" id="iDot"></span>
+          <div><strong id="iTitle"></strong><span class="muted" id="iHint"></span></div>
+        </div>
+        <div class="markrow">
+          <button type="button" id="undoBtn">Atrás</button>
+          <button type="button" class="primary big-btn" id="markBtn">Marcar</button>
+        </div>
+        <p class="muted small-text">Arrastrá el dedo de costado sobre el video para pasar cuadros. Un toque elige dónde hace zoom.</p>
+        <div class="note ok small-text" id="videoNote" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTADO ============ -->
+  <section class="view" id="vResult" hidden>
+    <div class="mbar">
+      <button type="button" class="sm ghost" id="rBack">← Marcas</button>
+      <span class="t" id="rTitle"></span>
+      <span></span>
+    </div>
+    <div class="card">
+      <div>
+        <p class="label" id="rMainLabel"></p>
+        <div class="hero-num" id="rMain"></div>
+      </div>
+      <div class="tiles" id="rTiles"></div>
+      <div id="rNotes" style="display: grid; gap: 8px;"></div>
+    </div>
+    <div class="card">
+      <div class="fields" id="rFields"></div>
+      <label for="rNote" class="muted small-text" style="display: grid; gap: 4px;">Nota (opcional)
+        <input id="rNote" type="text" placeholder="Ej.: intento 2, con brazos" autocomplete="off">
+      </label>
+    </div>
+    <div class="card">
+      <p class="label">Marcas</p>
+      <div id="rMarks"></div>
+    </div>
+    <button type="button" class="primary big-btn" id="saveBtn">Guardar</button>
+    <div class="row" style="display: grid; grid-template-columns: 1fr 1fr;">
+      <button type="button" id="againBtn">Otro salto en este video</button>
+      <button type="button" id="homeBtn">Ir al inicio</button>
+    </div>
+  </section>
+
+  <!-- ============ HISTORIAL ============ -->
+  <section class="view" id="vHistory" hidden>
+    <div class="mbar">
+      <button type="button" class="sm ghost" id="hBack">← Inicio</button>
+      <span class="t" id="hTitle">Historial</span>
+      <button type="button" class="sm" id="copyAll">Copiar todo</button>
+    </div>
+    <div class="seg" id="hFilter"></div>
+    <div class="tiles" id="hSummary"></div>
+    <div class="card" id="hList"></div>
+  </section>
+
+  <textarea id="copyArea" class="hidden-input" aria-hidden="true" tabindex="-1"></textarea>
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<script>
+(() => {
+  const G = 9.81;
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+  const video = $('#video');
+  const stage = $('#stage');
+
+  // ---------- Utilidades ----------
+  function h(tag, props, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k === 'style') el.setAttribute('style', v);
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (v === true) el.setAttribute(k, '');
+      else if (v !== false && v != null) el.setAttribute(k, v);
+    }
+    for (const c of kids.flat()) { if (c == null || c === false) continue; el.append(c instanceof Node ? c : document.createTextNode(String(c))); }
+    return el;
+  }
+  const fmt = (x, d) => (Number.isFinite(x) ? x.toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
+  const num = (v) => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+  const lsGet = (k) => { try { return localStorage.getItem('ms_' + k); } catch (_) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem('ms_' + k, v); } catch (_) {} };
+  const dateStr = (ms) => new Date(ms).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  let toastT = 0;
+  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
+  function copyText(text) {
+    const fallback = () => { const ta = $('#copyArea'); ta.value = text; ta.select(); try { document.execCommand('copy'); } catch (_) {} };
+    try { navigator.clipboard.writeText(text).catch(fallback); } catch (_) { fallback(); }
+  }
+
+  // ---------- Definiciones ----------
+  const TESTS = {
+    cmj: { name: 'CMJ', long: 'Salto con contramovimiento', marks: ['to', 'ld'], unit: 'cm', dec: 1 },
+    sj: { name: 'SJ', long: 'Salto sin contramovimiento', marks: ['to', 'ld'], unit: 'cm', dec: 1 },
+    dj: { name: 'Drop jump', long: 'Caída desde el cajón', marks: ['ct', 'to', 'ld'], unit: 'RSI', dec: 2 },
+    sq: { name: 'Sentadilla', long: 'Velocidad de la subida', marks: ['s', 'e'], unit: 'm/s', dec: 2 },
+  };
+  const MARKS = {
+    ct: { name: 'Contacto', btn: 'Marcar contacto', title: 'Buscá el contacto', hint: 'El primer cuadro que toca el piso al caer del cajón.', c: '--m-ct', next: 0.15 },
+    to: { name: 'Despegue', btn: 'Marcar despegue', title: 'Buscá el despegue', hint: 'El primer cuadro con los dos pies en el aire.', c: '--m-to', next: 0.40 },
+    ld: { name: 'Aterrizaje', btn: 'Marcar aterrizaje', title: 'Buscá el aterrizaje', hint: 'El primer cuadro con un pie tocando el piso.', c: '--m-ld' },
+    s: { name: 'Inicio de la subida', btn: 'Marcar inicio', title: 'Buscá el inicio de la subida', hint: 'El primer cuadro en que la barra empieza a subir.', c: '--m-to', next: 0.5 },
+    e: { name: 'Fin de la subida', btn: 'Marcar fin', title: 'Buscá el fin de la subida', hint: 'El primer cuadro con la barra frenada arriba.', c: '--m-ld' },
+  };
+
+  // ---------- Estado ----------
+  const S = {
+    view: 'home', db: null, colA: null, colT: null, store: 'loading',
+    athletes: [], tests: [], athleteId: lsGet('athleteId'),
+    capFps: Number(lsGet('capFps')) || 240,
+    hFilter: 'all', confirmDel: null,
+    v: null,   // video abierto: {file, url, frames, info}
+    m: null,   // medición: {type, marks, step, cur, saved}
+  };
+  $('#capFps').value = String(S.capFps);
+  $('#capFps').addEventListener('change', (e) => { S.capFps = Number(e.target.value) || 240; lsSet('capFps', String(S.capFps)); });
+
+  function show(view) {
+    S.view = view;
+    for (const [id, v] of [['#vHome', 'home'], ['#vMeasure', 'measure'], ['#vResult', 'result'], ['#vHistory', 'history']]) $(id).hidden = v !== view;
+    if (view === 'home') renderHome();
+    if (view === 'history') renderHistory();
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- Guardado (db privado de cada persona) ----------
+  function goOffline() {
+    S.store = 'offline'; S.colA = null; S.colT = null;
+    $('#offlineNote').hidden = false;
+    renderHome();
+  }
+  async function initStore() {
+    if (!window.claude || !window.claude.use) { goOffline(); return; }
+    try {
+      const [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+      const uid = user ? await user.id() : null;
+      if (!db || !uid) { goOffline(); return; }
+      const base = db.doc('data/users/' + uid + '/profile');
+      S.colA = base.collection('athletes');
+      S.colT = base.collection('tests');
+      let gotA = false, gotT = false;
+      const timer = setTimeout(() => { if (!(gotA && gotT)) { $('#syncState').textContent = 'Sin conexión con los datos'; } }, 10000);
+      const done = () => { if (gotA && gotT) { clearTimeout(timer); S.store = 'ok'; renderAllData(); } };
+      S.colA.onSnapshot((snap) => {
+        S.athletes = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
+        if (!snap.metadata.fromCache) gotA = true; done(); renderAllData();
+      }, () => { clearTimeout(timer); goOffline(); });
+      S.colT.orderBy('at', 'desc').limit(1000).onSnapshot((snap) => {
+        S.tests = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (!snap.metadata.fromCache) gotT = true; done(); renderAllData();
+      }, () => { clearTimeout(timer); goOffline(); });
+    } catch (_) { goOffline(); }
+  }
+  function renderAllData() { if (S.view === 'home') renderHome(); if (S.view === 'history') renderHistory(); }
+
+  async function addAthlete(name) {
+    name = name.trim(); if (!name) return;
+    if (S.colA) {
+      try { const ref = await S.colA.add({ name, createdAt: Date.now() }); S.athleteId = ref.id; }
+      catch (e) { toast(e && e.code === 'quota_exceeded' ? 'No hay más lugar para guardar.' : 'No se pudo guardar el atleta.'); return; }
+    } else {
+      const id = 'm' + Date.now(); S.athletes.push({ id, name }); S.athleteId = id;
+    }
+    lsSet('athleteId', S.athleteId);
+    renderHome();
+  }
+  function currentAthlete() {
+    return S.athletes.find((a) => a.id === S.athleteId) || S.athletes[0] || null;
+  }
+
+  // ---------- INICIO ----------
+  $('#firstAdd').addEventListener('click', () => { addAthlete($('#firstName').value); $('#firstName').value = ''; });
+  $('#firstName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#firstAdd').click(); });
+  $('#newAdd').addEventListener('click', () => { addAthlete($('#newName').value); $('#newName').value = ''; $('#athletePanel').hidden = true; $('#athleteToggle').setAttribute('aria-expanded', 'false'); });
+  $('#newName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#newAdd').click(); });
+  $('#athleteToggle').addEventListener('click', () => {
+    const p = $('#athletePanel'); p.hidden = !p.hidden; $('#athleteToggle').setAttribute('aria-expanded', String(!p.hidden));
+  });
+  $('#goHistory').addEventListener('click', () => show('history'));
+
+  function testsOf(athleteId, type) { return S.tests.filter((t) => t.athleteId === athleteId && (!type || t.type === type)); }
+
+  function renderHome() {
+    const st = $('#syncState');
+    st.textContent = S.store === 'ok' ? 'Guardado activo' : S.store === 'offline' ? 'Sin guardado' : 'Cargando…';
+    const a = currentAthlete();
+    const loading = S.store === 'loading';
+    $('#firstAthlete').hidden = loading || S.athletes.length > 0;
+    $('#athleteBox').hidden = S.athletes.length === 0;
+    $('#athleteName').textContent = a ? a.name : '—';
+    const list = $('#athleteList'); list.replaceChildren();
+    for (const x of S.athletes) {
+      list.append(h('button', { type: 'button', 'aria-pressed': String(a && x.id === a.id), onclick: () => {
+        S.athleteId = x.id; lsSet('athleteId', x.id); $('#athletePanel').hidden = true; $('#athleteToggle').setAttribute('aria-expanded', 'false'); renderHome();
+      } }, x.name));
+    }
+    const cards = $('#testCards'); cards.replaceChildren();
+    for (const [key, t] of Object.entries(TESTS)) {
+      const rows = a ? testsOf(a.id, key) : [];
+      const last = rows[0];
+      const best = rows.reduce((b, r) => (Number.isFinite(r.value) && (!b || r.value > b.value) ? r : b), null);
+      cards.append(h('button', { type: 'button', class: 'tcard', disabled: !a, onclick: () => startMeasure(key) },
+        h('span', { class: 'tn' }, t.name),
+        h('span', { class: 'tl2' }, t.long),
+        h('span', { class: 'tv' }, last ? fmt(last.value, t.dec) : '—', ' ', h('small', {}, t.unit)),
+        h('span', { class: 'tb' }, best ? 'Mejor ' + fmt(best.value, t.dec) + ' · ' + rows.length + ' guardados' : 'Sin mediciones'),
+        h('span', { class: 'go' }, 'Medir →')));
+    }
+    $('#goHistory').disabled = !a;
+  }
+
+  // ---------- Lector del índice del video (MOV / MP4) ----------
+  const fourcc = (dv, p) => String.fromCharCode(dv.getUint8(p), dv.getUint8(p + 1), dv.getUint8(p + 2), dv.getUint8(p + 3));
+  async function topBoxes(file) {
+    const out = []; let pos = 0;
+    while (pos + 8 <= file.size && out.length < 64) {
+      const dv = new DataView(await file.slice(pos, pos + 16).arrayBuffer());
+      let size = dv.getUint32(0); const type = fourcc(dv, 4); let hdr = 8;
+      if (size === 1) { size = Number(dv.getBigUint64(8)); hdr = 16; } else if (size === 0) { size = file.size - pos; }
+      if (size < 8) break;
+      out.push({ type, start: pos, size, hdr }); pos += size;
+    }
+    return out;
+  }
+  function kids(dv, box) {
+    const out = []; if (!box) return out; let p = box.body;
+    while (p + 8 <= box.end) {
+      let size = dv.getUint32(p); const type = fourcc(dv, p + 4); let hdr = 8;
+      if (size === 1) { size = Number(dv.getBigUint64(p + 8)); hdr = 16; } else if (size === 0) { size = box.end - p; }
+      if (size < 8 || p + size > box.end) break;
+      out.push({ type, body: p + hdr, end: p + size }); p += size;
+    }
+    return out;
+  }
+  const kid = (dv, box, t) => kids(dv, box).find((b) => b.type === t);
+  async function parseIndex(file) {
+    const tops = await topBoxes(file);
+    const mb = tops.find((b) => b.type === 'moov'); if (!mb) throw new Error('sin moov');
+    const buf = await file.slice(mb.start, mb.start + mb.size).arrayBuffer();
+    const dv = new DataView(buf); const moov = { body: mb.hdr, end: buf.byteLength };
+    const mvhd = kid(dv, moov, 'mvhd');
+    const movieTs = mvhd ? (dv.getUint8(mvhd.body) === 1 ? dv.getUint32(mvhd.body + 20) : dv.getUint32(mvhd.body + 12)) : 600;
+    let best = null;
+    for (const trak of kids(dv, moov).filter((b) => b.type === 'trak')) {
+      const mdia = kid(dv, trak, 'mdia'); if (!mdia) continue;
+      const hdlr = kid(dv, mdia, 'hdlr'); if (!hdlr || fourcc(dv, hdlr.body + 8) !== 'vide') continue;
+      const mdhd = kid(dv, mdia, 'mdhd'); if (!mdhd) continue;
+      const ts = dv.getUint8(mdhd.body) === 1 ? dv.getUint32(mdhd.body + 20) : dv.getUint32(mdhd.body + 12);
+      const stbl = kid(dv, kid(dv, mdia, 'minf'), 'stbl'); if (!stbl) continue;
+      const stsd = kid(dv, stbl, 'stsd'); let codec = '?', w = 0, hh = 0;
+      if (stsd) { const e = stsd.body + 8; codec = fourcc(dv, e + 4); w = dv.getUint16(e + 32); hh = dv.getUint16(e + 34); }
+      const stts = kid(dv, stbl, 'stts'); if (!stts) continue;
+      const pts = []; let t = 0; const n = dv.getUint32(stts.body + 4);
+      for (let i = 0; i < n; i++) { const cnt = dv.getUint32(stts.body + 8 + i * 8), d = dv.getUint32(stts.body + 12 + i * 8); for (let j = 0; j < cnt; j++) { pts.push(t); t += d; } }
+      const ctts = kid(dv, stbl, 'ctts');
+      if (ctts) { const cn = dv.getUint32(ctts.body + 4); let s = 0; for (let i = 0; i < cn; i++) { const cnt = dv.getUint32(ctts.body + 8 + i * 8), off = dv.getInt32(ctts.body + 12 + i * 8); for (let j = 0; j < cnt && s < pts.length; j++, s++) pts[s] += off; } }
+      let mediaStart = 0, emptyOffset = 0;
+      const elst = kid(dv, kid(dv, trak, 'edts'), 'elst');
+      if (elst) {
+        const v1 = dv.getUint8(elst.body) === 1; const cnt = dv.getUint32(elst.body + 4); let p = elst.body + 8, found = false;
+        for (let i = 0; i < cnt && !found; i++) {
+          const segDur = v1 ? Number(dv.getBigUint64(p)) : dv.getUint32(p);
+          const mt = v1 ? Number(dv.getBigInt64(p + 8)) : dv.getInt32(p + 4);
+          if (mt === -1) emptyOffset += segDur / movieTs; else { mediaStart = mt; found = true; }
+          p += v1 ? 20 : 12;
+        }
+      }
+      const times = pts.map((x) => (x - mediaStart) / ts + emptyOffset).filter((x) => x >= -1e-6).sort((a, b) => a - b);
+      const cand = { ts, codec, w, h: hh, times };
+      if (!best || cand.times.length > best.times.length) best = cand;
+    }
+    if (!best) throw new Error('sin pista de video');
+    return best;
+  }
+  function analyze(times) {
+    const iv = []; for (let i = 1; i < times.length; i++) iv.push(times[i] - times[i - 1]);
+    const sorted = iv.slice().sort((a, b) => a - b);
+    const med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+    const hist = new Map(); for (const x of iv) { const f = x > 0 ? Math.round(1 / x) : 0; hist.set(f, (hist.get(f) || 0) + 1); }
+    const top = Array.from(hist.values()).sort((a, b) => b - a)[0] || 0;
+    return { med, fps: med > 0 ? 1 / med : 0, uniform: iv.length ? top / iv.length > 0.97 : true };
+  }
+
+  // ---------- MEDIR ----------
+  function startMeasure(type) {
+    const a = currentAthlete(); if (!a) return;
+    S.m = { type, marks: {}, step: 0, saved: false, athleteId: a.id, athleteName: a.name };
+    $('#mTitle').textContent = TESTS[type].name + ' · ' + a.name;
+    if (S.v) { showWork(); seek(S.v.cur || 0); } else { $('#mPick').hidden = false; $('#mWork').hidden = true; $('#pickStatus').textContent = ''; }
+    $('#rNote').value = '';
+    renderStep();
+    show('measure');
+  }
+  $('#mExit').addEventListener('click', () => show('home'));
+
+  $('#file').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    $('#pickStatus').textContent = 'Leyendo el video…';
+    if (S.v && S.v.url) URL.revokeObjectURL(S.v.url);
+    const url = URL.createObjectURL(file);
+    let info = null;
+    try { info = await parseIndex(file); } catch (_) { info = null; }
+    video.src = url; video.load();
+    await new Promise((res) => { video.onloadedmetadata = res; video.onerror = res; });
+    if (!info) {
+      const fps = S.capFps; const n = Math.max(1, Math.floor((video.duration || 0) * fps));
+      info = { codec: '?', w: video.videoWidth, h: video.videoHeight, times: Array.from({ length: n }, (_, i) => i / fps), guessed: true };
+    }
+    info.a = analyze(info.times);
+    S.v = { file, url, frames: info.times, info, cur: 0 };
+    e.target.value = '';
+    try { await video.play(); video.pause(); } catch (_) {}
+    S.m.marks = {}; S.m.step = 0;
+    const note = $('#videoNote');
+    if (info.guessed) { note.className = 'note warn small-text'; note.textContent = 'No pude leer los tiempos del video. Uso ' + S.capFps + ' fps parejos.'; note.hidden = false; }
+    else if (info.a.fps < 50 && S.capFps > info.a.fps * 1.5) { note.className = 'note ok small-text'; note.textContent = 'Slo-mo: marcá dentro de la parte lenta. Al principio y al final el video va a velocidad normal.'; note.hidden = false; }
+    else note.hidden = true;
+    showWork(); seek(0); renderStep();
+  });
+
+  function showWork() {
+    $('#mPick').hidden = true; $('#mWork').hidden = false;
+    const sc = $('#scrub'); sc.max = String(S.v.frames.length - 1);
+  }
+
+  function renderStep() {
+    const m = S.m; if (!m) return;
+    const keys = TESTS[m.type].marks;
+    const done = m.step >= keys.length;
+    const k = keys[Math.min(m.step, keys.length - 1)];
+    const mk = MARKS[k];
+    $('#mStep').textContent = S.v ? 'Paso ' + Math.min(m.step + 1, keys.length) + ' de ' + keys.length : '';
+    $('#iTitle').textContent = mk.title;
+    $('#iHint').textContent = mk.hint;
+    $('#iDot').style.background = 'var(' + mk.c + ')';
+    $('#markBtn').textContent = mk.btn;
+    $('#markBtn').disabled = done;
+    $('#undoBtn').disabled = m.step === 0;
+    renderTimeline();
+  }
+
+  $('#markBtn').addEventListener('click', () => {
+    const m = S.m; const keys = TESTS[m.type].marks; const k = keys[m.step];
+    m.marks[k] = S.v.cur;
+    // Si ya estaban todas las marcas (corrección), ir directo al resultado
+    const missing = keys.findIndex((x) => m.marks[x] === undefined);
+    if (missing === -1) { m.step = keys.length; openResult(); return; }
+    m.step = missing;
+    const nx = MARKS[k].next;
+    if (nx) seek(S.v.cur + Math.round(nx * S.capFps));
+    renderStep();
+  });
+  $('#undoBtn').addEventListener('click', () => {
+    const m = S.m; const keys = TESTS[m.type].marks;
+    if (m.step === 0) return;
+    m.step -= 1; const k = keys[m.step];
+    const back = m.marks[k]; delete m.marks[k];
+    if (back !== undefined) seek(back);
+    renderStep();
+  });
+
+  // Navegación por cuadro
+  let seeking = false, pending = null, rvToken = 0;
+  function frameTime(i) {
+    const f = S.v.frames; const a = f[i];
+    const next = i + 1 < f.length ? f[i + 1] : a + (S.v.info.a.med || 1 / 240);
+    return Math.max(0, (a + next) / 2);
+  }
+  function nearestFrame(t) {
+    const f = S.v.frames; let lo = 0, hi = f.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (f[mid] <= t + 1e-4) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+  function seek(i) {
+    if (!S.v) return;
+    i = Math.max(0, Math.min(S.v.frames.length - 1, Math.round(i)));
+    S.v.cur = i;
+    $('#scrub').value = String(i);
+    $('#hudFrame').textContent = 'Cuadro ' + i + ' / ' + (S.v.frames.length - 1);
+    renderTimeline();
+    const t = frameTime(i);
+    if (seeking) { pending = t; return; }
+    doSeek(t);
+  }
+  function doSeek(t) {
+    seeking = true; const tok = ++rvToken; const want = S.v.cur;
+    $('#hudShown').textContent = '…';
+    if ('requestVideoFrameCallback' in video) {
+      let tries = 0;
+      const cb = (now, meta) => {
+        if (tok !== rvToken) return;
+        const k = nearestFrame(meta.mediaTime);
+        if ((video.seeking || k !== want) && ++tries < 4) { video.requestVideoFrameCallback(cb); return; }
+        $('#hudShown').textContent = k === want ? '✓' : 'muestra ' + k;
+      };
+      video.requestVideoFrameCallback(cb);
+    }
+    setTimeout(() => { if (tok === rvToken && $('#hudShown').textContent === '…') $('#hudShown').textContent = ''; }, 900);
+    video.currentTime = t;
+  }
+  video.addEventListener('seeked', () => {
+    seeking = false;
+    if (pending !== null) { const t = pending; pending = null; doSeek(t); }
+  });
+  $('#scrub').addEventListener('input', (e) => seek(Number(e.target.value)));
+  $$('.steps button').forEach((b) => b.addEventListener('click', () => seek(S.v.cur + Number(b.dataset.step))));
+  document.addEventListener('keydown', (e) => {
+    if (S.view !== 'measure' || !S.v || e.target.matches('input, select, textarea')) return;
+    if (e.key === 'ArrowRight') { seek(S.v.cur + (e.shiftKey ? 10 : 1)); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { seek(S.v.cur - (e.shiftKey ? 10 : 1)); e.preventDefault(); }
+    if (e.key === 'Enter' && !$('#markBtn').disabled) { $('#markBtn').click(); e.preventDefault(); }
+  });
+
+  // Arrastre = pasar cuadros; toque = punto de zoom
+  let zoom = 1, origin = [50, 50], drag = null;
+  function applyZoom() { video.style.transformOrigin = origin[0] + '% ' + origin[1] + '%'; video.style.transform = 'scale(' + zoom + ')'; $('#zoomBtn').textContent = 'Zoom ' + zoom + '×'; }
+  $('#zoomBtn').addEventListener('pointerdown', (e) => e.stopPropagation());
+  $('#zoomBtn').addEventListener('click', (e) => { e.stopPropagation(); zoom = zoom >= 4 ? 1 : zoom + 1; applyZoom(); });
+  stage.addEventListener('pointerdown', (e) => { if (!S.v) return; drag = { x: e.clientX, start: S.v.cur, moved: false }; try { stage.setPointerCapture(e.pointerId); } catch (_) {} });
+  stage.addEventListener('pointermove', (e) => { if (!drag) return; const dx = e.clientX - drag.x; if (Math.abs(dx) > 6) drag.moved = true; if (drag.moved) seek(drag.start + Math.round(dx / 10)); });
+  stage.addEventListener('pointerup', (e) => {
+    if (drag && !drag.moved) { const r = stage.getBoundingClientRect(); origin = [((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100]; if (zoom === 1) zoom = 2; applyZoom(); }
+    drag = null;
+  });
+  stage.addEventListener('pointercancel', () => (drag = null));
+
+  function renderTimeline() {
+    const tl = $('#tl'); tl.replaceChildren();
+    if (!S.v || !S.m) return; const n = S.v.frames.length; if (n < 2) return;
+    const pct = (i) => (i / (n - 1)) * 100;
+    for (const k of TESTS[S.m.type].marks) { const v = S.m.marks[k]; if (v !== undefined) tl.append(h('i', { style: 'left:' + pct(v) + '%;background:var(' + MARKS[k].c + ')' })); }
+    tl.append(h('i', { style: 'left:' + pct(S.v.cur) + '%;background:var(--fg);width:2px' }));
+  }
+
+  // ---------- RESULTADO ----------
+  function compute() {
+    const m = S.m, k = m.marks, fps = S.capFps, r = { tiles: [], notes: [], doc: {} };
+    const ramp = (a, b) => { const f = S.v.frames; let mn = Infinity, mx = 0; for (let i = a + 1; i <= b; i++) { const d = f[i] - f[i - 1]; mn = Math.min(mn, d); mx = Math.max(mx, d); } return mx / mn > 1.5; };
+    if (m.type === 'sq') {
+      const nf = k.e - k.s, dur = nf / fps, rom = num($('#fRom') ? $('#fRom').value : lsGet('rom') || 55);
+      const load = num($('#fLoad') ? $('#fLoad').value : '');
+      const v = rom > 0 ? rom / 100 / dur : NaN;
+      r.main = { v: fmt(v, 2), unit: 'm/s', label: 'Velocidad media de la subida' };
+      r.tiles.push(['Duración', fmt(dur * 1000, 0) + ' ms'], ['Cuadros', String(nf)], ['Recorrido', fmt(rom, 1) + ' cm']);
+      if (Number.isFinite(load)) r.tiles.push(['Carga', fmt(load, 1) + ' kg']);
+      if (!(rom > 0)) r.notes.push(['warn', 'Cargá el recorrido de la barra para calcular la velocidad.']);
+      if (ramp(k.s, k.e)) r.notes.push(['bad', 'Entre las marcas cambia la velocidad del video. Este resultado no es confiable.']);
+      r.doc = { value: v, velocity: v, durationMs: dur * 1000, romCm: rom, loadKg: Number.isFinite(load) ? load : null };
+      r.summary = fmt(v, 2) + ' m/s' + (Number.isFinite(load) ? ' · ' + fmt(load, 1) + ' kg' : '');
+      return r;
+    }
+    const nf = k.ld - k.to, tv = nf / fps, hcm = (G * tv * tv) / 8 * 100, err = (G * tv / 4) / fps * 100;
+    r.doc = { heightCm: hcm, flightMs: tv * 1000 };
+    if (m.type === 'dj') {
+      const nc = k.to - k.ct, tc = nc / fps, rsi = (hcm / 100) / tc, box = num($('#fBox') ? $('#fBox').value : lsGet('box') || 30);
+      r.main = { v: fmt(rsi, 2), unit: 'RSI', label: 'Índice de fuerza reactiva (altura ÷ contacto)' };
+      r.tiles.push(['Altura', fmt(hcm, 1) + ' cm'], ['Contacto', fmt(tc * 1000, 0) + ' ms'], ['Vuelo', fmt(tv * 1000, 0) + ' ms'], ['Cajón', fmt(box, 0) + ' cm']);
+      Object.assign(r.doc, { value: rsi, rsi, contactMs: tc * 1000, boxCm: Number.isFinite(box) ? box : null });
+      r.summary = 'RSI ' + fmt(rsi, 2) + ' · ' + fmt(hcm, 1) + ' cm · cajón ' + fmt(box, 0) + ' cm';
+      if (tc < 0.08 || tc > 0.6) r.notes.push(['warn', 'El contacto dura ' + fmt(tc * 1000, 0) + ' ms. Lo común está entre 150 y 400 ms. Revisá la marca de contacto.']);
+      if (ramp(k.ct, k.ld)) r.notes.push(['bad', 'Entre las marcas cambia la velocidad del video. Este resultado no es confiable.']);
+    } else {
+      r.main = { v: fmt(hcm, 1), unit: 'cm', label: 'Altura del salto' };
+      r.tiles.push(['Vuelo', fmt(tv * 1000, 0) + ' ms'], ['Cuadros', String(nf)], ['Margen', '±' + fmt(err, 1) + ' cm']);
+      Object.assign(r.doc, { value: hcm });
+      r.summary = fmt(hcm, 1) + ' cm · vuelo ' + fmt(tv * 1000, 0) + ' ms';
+      if (ramp(k.to, k.ld)) r.notes.push(['bad', 'Entre las marcas cambia la velocidad del video. Este resultado no es confiable.']);
+    }
+    if (tv < 0.25 || tv > 0.9) r.notes.push(['warn', 'El vuelo dura ' + fmt(tv * 1000, 0) + ' ms. Un salto común vuela entre 400 y 650 ms. ¿Marcaste en la parte lenta del video?']);
+    return r;
+  }
+
+  function openResult() {
+    const m = S.m; const t = TESTS[m.type];
+    $('#rTitle').textContent = t.name + ' · ' + m.athleteName;
+    const f = $('#rFields'); f.replaceChildren();
+    if (m.type === 'dj') {
+      f.append(h('label', { for: 'fBox' }, 'Altura del cajón (cm)', h('input', { id: 'fBox', type: 'number', inputmode: 'decimal', min: '0', step: '1', value: lsGet('box') || '30', oninput: (e) => { lsSet('box', e.target.value); renderResult(); } })));
+    } else if (m.type === 'sq') {
+      f.append(
+        h('label', { for: 'fRom' }, 'Recorrido de la barra (cm)', h('input', { id: 'fRom', type: 'number', inputmode: 'decimal', min: '1', step: '0.5', value: lsGet('rom') || '55', oninput: (e) => { lsSet('rom', e.target.value); renderResult(); } })),
+        h('label', { for: 'fLoad' }, 'Carga (kg)', h('input', { id: 'fLoad', type: 'number', inputmode: 'decimal', min: '0', step: '0.5', placeholder: 'Ej.: 100', oninput: () => renderResult() })));
+    }
+    f.hidden = f.children.length === 0;
+    m.saved = false;
+    renderResult();
+    show('result');
+  }
+
+  function renderResult() {
+    const m = S.m; const r = compute();
+    $('#rMainLabel').textContent = r.main.label;
+    $('#rMain').replaceChildren(r.main.v, ' ', h('small', {}, r.main.unit));
+    $('#rTiles').replaceChildren(...r.tiles.map(([k, v]) => h('div', {}, h('div', { class: 'v' }, v), h('div', { class: 'k' }, k))));
+    $('#rNotes').replaceChildren(...r.notes.map(([c, txt]) => h('div', { class: 'note ' + c }, txt)));
+    const mk = $('#rMarks'); mk.replaceChildren();
+    TESTS[m.type].marks.forEach((k, idx) => {
+      const at = m.marks[k];
+      // "Corregir" vuelve al cuadro marcado y pide esa marca de nuevo
+      mk.append(h('div', { class: 'mk' },
+        h('span', { class: 'dot', style: 'background:var(' + MARKS[k].c + ')' }),
+        h('span', {}, MARKS[k].name, ' ', h('span', { class: 'muted mono small-text' }, '#' + at)),
+        h('button', { type: 'button', class: 'sm', onclick: () => { m.step = idx; delete m.marks[k]; show('measure'); seek(at); renderStep(); } }, 'Corregir')));
+    });
+    const sb = $('#saveBtn');
+    sb.disabled = m.saved || !Number.isFinite(r.doc.value);
+    sb.textContent = m.saved ? 'Guardado ✓' : 'Guardar';
+  }
+  $('#rBack').addEventListener('click', () => { const m = S.m; m.step = TESTS[m.type].marks.length - 1; show('measure'); seek(m.marks[TESTS[m.type].marks[m.step]]); delete m.marks[TESTS[m.type].marks[m.step]]; renderStep(); });
+
+  $('#saveBtn').addEventListener('click', async () => {
+    const m = S.m; if (m.saved) return;
+    const r = compute();
+    const doc = Object.assign({
+      athleteId: m.athleteId, type: m.type, at: Date.now(), note: $('#rNote').value.trim(),
+      fps: S.capFps, marks: Object.assign({}, m.marks), video: S.v && S.v.file ? S.v.file.name : '', summary: r.summary,
+    }, r.doc);
+    for (const k of Object.keys(doc)) if (typeof doc[k] === 'number' && !Number.isFinite(doc[k])) doc[k] = null;
+    const sb = $('#saveBtn'); sb.disabled = true; sb.textContent = 'Guardando…';
+    if (S.colT) {
+      try { await S.colT.add(doc); }
+      catch (e) { sb.disabled = false; sb.textContent = 'Guardar'; toast(e && e.code === 'quota_exceeded' ? 'No hay más lugar. Borrá mediciones viejas.' : 'No se pudo guardar. Probá de nuevo.'); return; }
+    } else {
+      S.tests.unshift(Object.assign({ id: 'm' + Date.now() }, doc));
+    }
+    m.saved = true; renderResult(); toast('Guardado');
+  });
+  $('#againBtn').addEventListener('click', () => {
+    const m = S.m; const from = Math.max(...Object.values(m.marks));
+    startMeasure(m.type); seek(from + Math.round(0.5 * S.capFps));
+  });
+  $('#homeBtn').addEventListener('click', () => show('home'));
+
+  // ---------- HISTORIAL ----------
+  $('#hBack').addEventListener('click', () => show('home'));
+  $('#copyAll').addEventListener('click', () => {
+    const names = Object.fromEntries(S.athletes.map((a) => [a.id, a.name]));
+    const lines = ['Fecha\tAtleta\tPrueba\tValor\tUnidad\tAltura cm\tVuelo ms\tContacto ms\tRSI\tCajón cm\tVelocidad m/s\tCarga kg\tRecorrido cm\tNota'];
+    for (const t of S.tests) {
+      const T = TESTS[t.type] || { name: t.type, unit: '' };
+      const c = (x, d) => (x == null ? '' : fmt(x, d));
+      lines.push([dateStr(t.at), names[t.athleteId] || '', T.name, c(t.value, 2), T.unit, c(t.heightCm, 1), c(t.flightMs, 0), c(t.contactMs, 0), c(t.rsi, 2), c(t.boxCm, 0), c(t.velocity, 2), c(t.loadKg, 1), c(t.romCm, 1), t.note || ''].join('\t'));
+    }
+    copyText(lines.join('\n')); toast('Copiado: ' + S.tests.length + ' mediciones');
+  });
+
+  function renderHistory() {
+    const a = currentAthlete();
+    $('#hTitle').textContent = a ? a.name : 'Historial';
+    const seg = $('#hFilter'); seg.replaceChildren();
+    for (const [k, label] of [['all', 'Todo'], ['cmj', 'CMJ'], ['sj', 'SJ'], ['dj', 'DJ'], ['sq', 'Sentadilla']]) {
+      seg.append(h('button', { type: 'button', 'aria-pressed': String(S.hFilter === k), onclick: () => { S.hFilter = k; renderHistory(); } }, label));
+    }
+    const rows = a ? testsOf(a.id, S.hFilter === 'all' ? null : S.hFilter) : [];
+    const sum = $('#hSummary'); sum.replaceChildren();
+    if (S.hFilter !== 'all' && rows.length) {
+      const T = TESTS[S.hFilter]; const vals = rows.map((r) => r.value).filter(Number.isFinite);
+      const last5 = vals.slice(0, 5); const avg = last5.reduce((s, x) => s + x, 0) / (last5.length || 1);
+      sum.append(
+        h('div', {}, h('div', { class: 'v' }, fmt(Math.max(...vals), T.dec) + ' ' + T.unit), h('div', { class: 'k' }, 'Mejor')),
+        h('div', {}, h('div', { class: 'v' }, fmt(avg, T.dec) + ' ' + T.unit), h('div', { class: 'k' }, 'Promedio de las últimas ' + last5.length)),
+        h('div', {}, h('div', { class: 'v' }, String(rows.length)), h('div', { class: 'k' }, 'Mediciones')));
+    }
+    const list = $('#hList'); list.replaceChildren();
+    if (!rows.length) { list.append(h('p', { class: 'muted' }, 'Todavía no hay mediciones guardadas. Elegí una prueba en el inicio y guardá el resultado.')); return; }
+    for (const r of rows) {
+      const T = TESTS[r.type] || { name: r.type, unit: '', dec: 2 };
+      const del = S.confirmDel === r.id
+        ? h('span', { class: 'row' }, h('button', { type: 'button', class: 'sm danger', onclick: () => removeTest(r.id) }, 'Borrar'), h('button', { type: 'button', class: 'sm', onclick: () => { S.confirmDel = null; renderHistory(); } }, 'No'))
+        : h('button', { type: 'button', class: 'sm ghost', 'aria-label': 'Borrar medición', onclick: () => { S.confirmDel = r.id; renderHistory(); } }, '✕');
+      list.append(h('div', { class: 'hitem' },
+        h('div', {}, h('span', { class: 'pill' }, T.name), h('span', { class: 'hv' }, fmt(r.value, T.dec) + ' ' + T.unit)),
+        del,
+        h('div', { class: 'hd' }, dateStr(r.at) + (r.summary ? ' · ' + r.summary : '') + (r.note ? ' · ' + r.note : ''))));
+    }
+  }
+  async function removeTest(id) {
+    S.confirmDel = null;
+    if (S.colT) { try { await S.colT.doc(id).delete(); toast('Borrada'); } catch (_) { toast('No se pudo borrar.'); } }
+    else { S.tests = S.tests.filter((t) => t.id !== id); }
+    renderHistory();
+  }
+
+  // ---------- Arranque ----------
+  renderHome();
+  initStore();
+})();
+</script>
