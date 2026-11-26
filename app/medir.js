@@ -20,8 +20,8 @@ const METRICAS = {
 };
 const GRUPOS = [['rend', 'Rendimiento'], ['cuerpo', 'Cuerpo']];
 const CONSEJO = {
-  cmj: 'Manos en la cintura, bajá y saltá sin pausa. Hacé 3 intentos y guardá el mejor.',
-  dj: 'Dejate caer del cajón, sin saltar hacia arriba, y rebotá lo más rápido posible.',
+  cmj: 'Manos en la cintura, bajá y saltá sin pausa. Despegá y aterrizá con los dos pies a la vez. Hacé 3 intentos y guardá el mejor.',
+  dj: 'Dejate caer del cajón, sin saltar hacia arriba. Tocá el piso con los dos pies a la vez y rebotá lo más rápido posible. Despegá y aterrizá también con los dos pies. Medí siempre desde la misma altura: el RSI desde 50 cm no se compara con el RSI desde 15 cm.',
   sq: 'Medí con la misma carga cada vez para poder comparar.',
   rm_sq: 'Si no probaste un máximo real, usá un peso que puedas levantar entre 2 y 10 veces.',
   rm_bp: 'Si no probaste un máximo real, usá un peso que puedas levantar entre 2 y 10 veces.',
@@ -38,7 +38,11 @@ function agregarRegistro({ tipo, valor, fecha = claveFecha(new Date()), det = {}
   registros.push(r); guardar();
   return r;
 }
-const de = (tipo) => registros.filter((r) => r.tipo === tipo && Number.isFinite(r.valor));
+// El drop jump se compara solo desde la misma altura de cajón: caer de 50 cm no es lo mismo que de 15 cm.
+// «cajon» sin pasar = todas las alturas; null = las mediciones sin altura anotada.
+const cajonDe = (r) => (r.det && r.det.cajonCm) || null;
+const de = (tipo, cajon) => registros.filter((r) => r.tipo === tipo && Number.isFinite(r.valor) && (cajon === undefined || cajonDe(r) === cajon));
+const textoCajon = (c) => (c ? `cajón de ${fmt(c, 0)} cm` : 'sin altura de cajón');
 const ultimo = (tipo) => { const l = de(tipo); return l[l.length - 1] || null; };
 
 // El peso que se anotaba en la app Calorías pasa a Medir una sola vez.
@@ -58,8 +62,8 @@ if (!guardado.leer('migrado', false)) {
 }
 
 // Valor de una métrica en una semana: el mejor en rendimiento, el promedio en el cuerpo.
-function valorDeSemana(tipo, sem) {
-  const l = de(tipo).filter((r) => r.semana === sem).map((r) => r.valor);
+function valorDeSemana(tipo, sem, cajon) {
+  const l = de(tipo, cajon).filter((r) => r.semana === sem).map((r) => r.valor);
   if (!l.length) return null;
   return METRICAS[tipo].grupo === 'rend' ? Math.max(...l) : l.reduce((s, x) => s + x, 0) / l.length;
 }
@@ -90,11 +94,13 @@ function pintar() {
     Object.entries(METRICAS).filter(([, M]) => M.grupo === g).map(([tipo, M]) => {
       const l = de(tipo);
       const u = l[l.length - 1];
+      const comp = tipo === 'dj' && u ? de(tipo, cajonDe(u)) : l; // el cambio, desde la misma altura
+      const cajonTxt = tipo === 'dj' && u ? ` · ${textoCajon(cajonDe(u))}` : '';
       const pendiente = esTest && g === 'rend' && valorDeSemana(tipo, semHoy) == null;
       let detalle;
       if (!u) detalle = `<span class="nota">${esc(M.largo)}</span>`;
-      else if (l.length === 1) detalle = `<span class="nota">${fechaCorta(u.fecha)} · primera medición</span>`;
-      else { const c = textoCambio(tipo, l[0].valor, u.valor); detalle = `<span class="cambio ${c.cls}">${c.txt}</span>`; }
+      else if (comp.length === 1) detalle = `<span class="nota">${fechaCorta(u.fecha)} · primera medición${cajonTxt}</span>`;
+      else { const c = textoCambio(tipo, comp[0].valor, u.valor); detalle = `<span class="cambio ${c.cls}">${c.txt}${cajonTxt}</span>`; }
       return `<button class="item metrica" data-metrica="${tipo}">
         <span class="nombre"><span>${esc(M.nombre)}${pendiente ? '<span class="etiqueta test">falta esta semana</span>' : ''}</span>${detalle}</span>
         <span class="valor">${u ? fmt(u.valor, M.dec) : '—'}<small>${esc(M.unidad)}</small></span></button>`;
@@ -105,8 +111,8 @@ $('#medirLista').addEventListener('click', (e) => { const b = e.target.closest('
 
 /* ---------- hoja de una métrica: gráfico, etapas e historial ---------- */
 let metricaAbierta = null;
-function grafico(tipo) {
-  const l = de(tipo);
+let cajonVista; // drop jump: la altura de cajón que se mira en el gráfico y en «Por etapa»
+function grafico(tipo, l) {
   if (l.length < 2) return '';
   const M = METRICAS[tipo];
   const W = 320, H = 150, iz = 34, de_ = 8, ar = 12, ab = 22;
@@ -143,18 +149,28 @@ function pintarMetrica() {
     '<p>Todavía no hay mediciones. Cargá la primera para tener tu punto de partida.</p>';
   const p7 = (tipo === 'peso' || tipo === 'hrv') && promedio7(tipo);
   if (p7) h += `<p class="nota">Promedio de los últimos 7 días: <b>${fmt(p7.v, M.dec)} ${esc(M.unidad)}</b> (${p7.n} ${p7.n === 1 ? 'día' : 'días'})</p>`;
-  h += grafico(tipo) + '</div>';
+  // Drop jump: el gráfico y las etapas usan una sola altura de cajón.
+  let lv = l, cajonEtapa;
+  if (tipo === 'dj' && l.length) {
+    const alturas = [...new Set(l.map(cajonDe))].sort((a, b) => (a ?? -1) - (b ?? -1));
+    if (!alturas.includes(cajonVista)) cajonVista = cajonDe(u);
+    lv = de(tipo, cajonVista); cajonEtapa = cajonVista;
+    h += `<p class="nota">El RSI solo se compara desde la misma altura: de más alto, la caída carga más y el contacto se alarga.</p>`;
+    if (alturas.length > 1) h += `<div class="filtros" id="mtCajon">${alturas.map((c) => `<button class="chip ${c === cajonVista ? 'activa' : ''}" data-cajon="${c ?? ''}">${c ? fmt(c, 0) + ' cm' : 'Sin altura'}</button>`).join('')}</div>`;
+    else h += `<p class="nota">Todas desde ${textoCajon(cajonVista)}.</p>`;
+  }
+  h += grafico(tipo, lv) + '</div>';
 
   h += `<div class="dos">${M.video ? `<button class="boton" data-accion="video">Medir con video</button><button class="boton secundario" data-accion="cargar">Cargar a mano</button>` :
     `<button class="boton" data-accion="cargar">Cargar medición</button>`}</div>`;
 
   // Por etapa: las semanas de tests una al lado de la otra.
   const filas = ETAPA.plan.semanas.filter((w) => w.tests).map((w) => {
-    const v = valorDeSemana(tipo, w.n);
+    const v = valorDeSemana(tipo, w.n, cajonEtapa);
     return `<div><span class="nota">Semana ${w.n}</span><b>${v == null ? '—' : fmt(v, M.dec)}</b></div>`;
   }).join('');
   h += `<div class="tarjeta"><h2>Por etapa</h2><div class="etapas">${filas}</div>
-    <p class="nota">${M.grupo === 'rend' ? 'La mejor medición de cada semana de tests.' : 'El promedio de cada semana de tests.'}</p></div>`;
+    <p class="nota">${M.grupo === 'rend' ? `La mejor medición de cada semana de tests${cajonEtapa !== undefined ? `, desde ${textoCajon(cajonEtapa)}` : ''}.` : 'El promedio de cada semana de tests.'}</p></div>`;
 
   h += `<div class="tarjeta"><h2>Historial</h2>` + (l.length ? l.slice().reverse().map((r) => `<div class="registro">
       <div><b>${fmt(r.valor, M.dec)} ${esc(M.unidad)}</b><span class="nota"> · ${fechaCorta(r.fecha)}${r.semana >= 1 && r.semana <= ETAPA.total ? ` · sem ${r.semana}` : ''}</span>
@@ -166,6 +182,7 @@ function pintarMetrica() {
 let borrarPendiente = null;
 $('#mtCuerpo').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.cajon !== undefined) { cajonVista = b.dataset.cajon === '' ? null : +b.dataset.cajon; pintarMetrica(); return; }
   if (b.dataset.accion === 'video') medirConVideo(metricaAbierta);
   if (b.dataset.accion === 'cargar') abrirCargar(metricaAbierta);
   if (b.dataset.borrar) {
@@ -174,7 +191,7 @@ $('#mtCuerpo').addEventListener('click', (e) => {
     guardar(); pintarMetrica(); pintar(); avisar('Medición borrada');
   }
 });
-function abrirMetrica(tipo) { metricaAbierta = tipo; borrarPendiente = null; pintarMetrica(); abrirHoja('#hojaMetrica'); }
+function abrirMetrica(tipo) { metricaAbierta = tipo; borrarPendiente = null; cajonVista = undefined; pintarMetrica(); abrirHoja('#hojaMetrica'); }
 alCerrarHoja['#hojaMetrica'] = () => { metricaAbierta = null; };
 function repintar() { if (metricaAbierta) pintarMetrica(); if (seccionActual === 'medir') pintar(); if (window.Hoy) window.Hoy.pintar(); }
 

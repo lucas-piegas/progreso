@@ -96,7 +96,7 @@ window.EJERCICIOS = {
   // ---------- Saltos ----------
   saltoVertical: {
     nombre: 'Salto vertical con contramovimiento', grupo: 'Saltos',
-    como: 'De pie, bajá rápido a un cuarto de sentadilla y saltá lo más alto posible con ayuda de los brazos. Aterrizá suave y reseteá antes del siguiente.',
+    como: 'De pie, bajá rápido a un cuarto de sentadilla y saltá lo más alto posible con ayuda de los brazos. Despegá y aterrizá con los dos pies a la vez. Aterrizá suave y reseteá antes del siguiente.',
     claves: ['Cada salto es máximo.', 'Aterrizaje silencioso, rodillas alineadas.', 'Si un salto sale más bajo que los anteriores, cortás.'],
     video: 'countermovement jump technique',
   },
@@ -109,7 +109,7 @@ window.EJERCICIOS = {
   dropJump: {
     nombre: 'Drop jump', grupo: 'Saltos',
     como: 'Desde un cajón (30 o 40 cm), dejate caer (no saltes hacia abajo) y, apenas tocás el piso, rebotá hacia arriba lo más alto y rápido posible. En el bloque 2 se suman rebotes a una pierna.',
-    claves: ['Contacto lo más corto posible.', 'Caé con los dos pies a la vez.', 'Si el contacto se alarga, el cajón es muy alto.'],
+    claves: ['Contacto lo más corto posible.', 'Caé, despegá y aterrizá con los dos pies a la vez.', 'Si el contacto se alarga, el cajón es muy alto.', 'Compará el RSI siempre desde la misma altura de cajón.'],
     video: 'drop jump technique plyometric',
   },
 
