@@ -639,7 +639,7 @@ $('#gaArchivo').onchange = async (ev) => {
 };
 
 /* Lectura sin IA: Tesseract.js lee el texto de la captura dentro del teléfono (gratis, sin servidor).
-   La primera vez baja el lector (unos MB) y después queda guardado. Claude queda de respaldo. */
+   La primera vez baja el lector (unos MB) y después queda guardado. Sin IA: lo que no encuentra se escribe a mano. */
 const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 let lectorOcr = null;
 function cargarOcr() {
@@ -725,29 +725,10 @@ async function leerCaptura() {
     boton.disabled = false; boton.textContent = 'Leer de nuevo';
     return;
   }
-  // Respaldo: Claude, solo si el lector no encontró los dos números.
-  if (!confFoto.url || !confFoto.clave) guardarConfFoto();
-  if (!confFoto.url || !confFoto.clave) {
-    estado.textContent = `No encontré ${ocr && ocr.reposo == null ? 'el reposo' : 'todos los números'} en la captura${falla ? ' (' + falla + ')' : ''}. Escribilos a mano.`;
-    boton.disabled = false; boton.textContent = 'Leer de nuevo';
-    return;
-  }
-  estado.textContent = 'No encontré todos los números. Claude está leyendo la captura. Tarda unos segundos.';
-  try {
-    const r = await fetch(confFoto.url + '/gasto', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + confFoto.clave },
-      body: JSON.stringify({ imagen: gastoFoto.split(',')[1], hoy: claveFecha(new Date()), modelo: confFoto.modelo }),
-    });
-    const d = await r.json().catch(() => ({ error: 'Respuesta inválida (' + r.status + ')' }));
-    if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
-    $('#gaReposo').value = d.reposo || ''; $('#gaActividad').value = d.actividad ?? '';
-    ponerFecha(d.fecha, d.dia_completo);
-    if (d.notas) $('#gaAviso').textContent = [$('#gaAviso').textContent, d.notas].filter(Boolean).join(' ');
-    estado.textContent = 'La leyó Claude. Revisá los números y la fecha antes de guardar.';
-  } catch (e) {
-    estado.textContent = 'No se pudo leer: ' + e.message + '. Podés escribir los números a mano.';
-  } finally { boton.disabled = false; boton.textContent = 'Leer de nuevo'; }
+  // Sin IA: lo que el lector no encontró se escribe a mano.
+  const faltan = [ocr && ocr.reposo != null ? '' : 'el reposo', ocr && ocr.actividad != null ? '' : 'la actividad'].filter(Boolean);
+  estado.textContent = `No encontré ${faltan.join(' ni ')} en la captura${falla ? ' (' + falla + ')' : ''}. Escribilo a mano.`;
+  boton.disabled = false; boton.textContent = 'Leer de nuevo';
 }
 $('#gaLeer').onclick = leerCaptura;
 $('#gaGuardar').onclick = () => {
