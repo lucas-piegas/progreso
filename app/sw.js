@@ -1,7 +1,7 @@
 // Guarda la app y las bases en el teléfono: todo funciona sin conexión.
 // Lo único externo es Open Food Facts, y solo para un código de barras que no esté en productos.json.
 // Subí VERSION cada vez que cambies un archivo de la app.
-const VERSION = 'progreso-v8';
+const VERSION = 'progreso-v9';
 const EXTERNO = 'progreso-externo'; // el lector de texto (Tesseract.js); no cambia con cada versión
 const ARCHIVOS = ['./', 'index.html', 'estilos.css', 'plan.js', 'ejercicios.js', 'nucleo.js', 'comida.js', 'entreno.js', 'medir.js', 'hoy.js', 'alimentos.json', 'productos.json', 'vendor/html5-qrcode.min.js', 'manifest.webmanifest', 'icono-180.png', 'icono-512.png'];
 

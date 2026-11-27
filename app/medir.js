@@ -10,7 +10,7 @@ let registros = guardado.leer('registros', []);
 
 const METRICAS = {
   cmj: { nombre: 'CMJ', largo: 'Salto con contramovimiento', unidad: 'cm', dec: 1, grupo: 'rend', video: true },
-  dj: { nombre: 'Drop jump', largo: 'Índice de fuerza reactiva (RSI)', unidad: 'RSI', dec: 2, grupo: 'rend', video: true },
+  dj: { nombre: 'Drop jump', largo: 'Índice de fuerza reactiva (RSI = vuelo ÷ contacto)', unidad: 'RSI', dec: 2, grupo: 'rend', video: true },
   sq: { nombre: 'Velocidad de sentadilla', largo: 'Velocidad media de la subida', unidad: 'm/s', dec: 2, grupo: 'rend', video: true },
   rm_sq: { nombre: '1RM sentadilla', largo: 'Una repetición máxima', unidad: 'kg', dec: 1, grupo: 'rend', rm: true },
   rm_bp: { nombre: '1RM press de banca', largo: 'Una repetición máxima', unidad: 'kg', dec: 1, grupo: 'rend', rm: true },
@@ -147,6 +147,10 @@ function pintarMetrica() {
   const u = l[l.length - 1];
   h += u ? `<div class="numero-grande">${fmt(u.valor, M.dec)} <small>${esc(M.unidad)}</small></div><p class="nota">Última: ${fechaCorta(u.fecha)}${u.semana >= 1 && u.semana <= ETAPA.total ? ` · semana ${u.semana}` : ''}</p>` :
     '<p>Todavía no hay mediciones. Cargá la primera para tener tu punto de partida.</p>';
+  if (u && (tipo === 'cmj' || tipo === 'dj') && u.det) {
+    const fs = filasSalto(u.det).filter(([n]) => !(tipo === 'cmj' && n === 'Altura'));
+    if (fs.length) h += `<div class="baldosas">${fs.map(([k, v]) => `<div><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</div>`;
+  }
   const p7 = (tipo === 'peso' || tipo === 'hrv') && promedio7(tipo);
   if (p7) h += `<p class="nota">Promedio de los últimos 7 días: <b>${fmt(p7.v, M.dec)} ${esc(M.unidad)}</b> (${p7.n} ${p7.n === 1 ? 'día' : 'días'})</p>`;
   // Drop jump: el gráfico y las etapas usan una sola altura de cajón.
@@ -196,6 +200,9 @@ alCerrarHoja['#hojaMetrica'] = () => { metricaAbierta = null; };
 function repintar() { if (metricaAbierta) pintarMetrica(); if (seccionActual === 'medir') pintar(); if (window.Hoy) window.Hoy.pintar(); }
 
 /* ---------- cargar a mano ---------- */
+// Distancia de empuje del CMJ (método de Samozino): el largo de la pierna estirada menos la altura de la cadera en la sentadilla.
+const campoEmpuje = (id) => `<label>Distancia de empuje (cm, opcional)<input id="${id}" type="number" inputmode="decimal" step="0.5" value="${esc(guardado.leer('empuje', ''))}" placeholder="35"></label>
+  <p class="nota">Para la fuerza y la potencia. Medí desde la cadera (el hueso del costado) hasta la punta del pie, con la pierna estirada. Restale la altura de la cadera al piso en la sentadilla del salto.</p>`;
 let cargando = null; // { tipo, modo }
 function abrirCargar(tipo) {
   cargando = { tipo, modo: 'directo' };
@@ -215,10 +222,13 @@ function pintarCargar() {
          <label>Repeticiones<input id="cgReps" type="number" inputmode="numeric" min="2" max="12"></label></div>
          <p class="nota" id="cgEstimado">Fórmula de Epley: peso × (1 + repeticiones ÷ 30).</p>`);
   } else if (tipo === 'dj') {
-    campos = `<div class="campos"><label>Altura (cm)<input id="cgAltura" type="number" inputmode="decimal"></label>
+    campos = `<div class="campos"><label>Vuelo (ms)<input id="cgVuelo" type="number" inputmode="numeric"></label>
       <label>Contacto (ms)<input id="cgContacto" type="number" inputmode="numeric"></label>
       <label>Cajón (cm)<input id="cgCajon" type="number" inputmode="numeric" value="${esc(guardado.leer('cajon', 30))}"></label></div>
-      <p class="nota" id="cgEstimado">RSI = altura en metros ÷ contacto en segundos.</p>`;
+      <p class="nota" id="cgEstimado">RSI = vuelo ÷ contacto.</p>`;
+  } else if (tipo === 'cmj') {
+    campos = `<label>Altura del salto (cm)<input id="cgValor" type="number" inputmode="decimal" step="0.1"></label>
+      ${campoEmpuje('cgEmpuje')}<p class="nota" id="cgEstimado">Con la altura salen el vuelo, las velocidades y, con tu peso, el impulso.</p>`;
   } else if (tipo === 'sq') {
     campos = `<div class="campos dos-col"><label>Velocidad (m/s)<input id="cgValor" type="number" inputmode="decimal" step="0.01"></label>
       <label>Carga (kg)<input id="cgCarga" type="number" inputmode="decimal"></label></div>`;
@@ -239,11 +249,20 @@ function leerCargar() {
     const est = reps === 1 ? peso : peso * (1 + reps / 30);
     return { valor: uno(est), det: { peso, reps, estimado: true, resumen: `Estimado: ${fmt(peso, 1)} kg × ${reps}` }, aviso: reps > 10 ? 'Con más de 10 repeticiones la estimación pierde precisión.' : '' };
   }
+  const fecha = ($('#cgFecha') && $('#cgFecha').value) || claveFecha(new Date());
   if (tipo === 'dj') {
-    const alt = v('#cgAltura'), ct = v('#cgContacto'), caj = v('#cgCajon');
-    if (!(alt > 0 && ct > 0)) return { error: 'Poné la altura y el contacto' };
-    const rsi = (alt / 100) / (ct / 1000);
-    return { valor: Math.round(rsi * 100) / 100, det: { alturaCm: alt, contactoMs: ct, cajonCm: caj || null, resumen: `${fmt(alt, 1)} cm · contacto ${fmt(ct, 0)} ms${caj ? ` · cajón ${fmt(caj, 0)} cm` : ''}` } };
+    const tv = v('#cgVuelo'), ct = v('#cgContacto'), caj = v('#cgCajon');
+    if (!(tv > 0 && ct > 0)) return { error: 'Poné el vuelo y el contacto' };
+    const d = datosSalto(tv / 1000, { tc: ct / 1000, m: pesoCorporal(fecha) });
+    d.cajonCm = caj || null;
+    return { valor: Math.round(d.rsi * 100) / 100, det: { ...d, resumen: `${fmt(d.alturaCm, 1)} cm · vuelo ${fmt(tv, 0)} ms · contacto ${fmt(ct, 0)} ms${caj ? ` · cajón ${fmt(caj, 0)} cm` : ''}` } };
+  }
+  if (tipo === 'cmj') {
+    const h = v('#cgValor'), emp = v('#cgEmpuje');
+    if (!(h > 0)) return { error: 'Poné la altura del salto' };
+    const d = datosSalto(Math.sqrt(8 * h / 100 / G), { m: pesoCorporal(fecha), hpo: emp > 0 ? emp / 100 : null });
+    d.alturaCm = h;
+    return { valor: h, det: { ...d, resumen: `vuelo ${fmt(d.vueloMs, 0)} ms` } };
   }
   const valor = v('#cgValor');
   if (!(valor > 0)) return { error: 'Poné un valor' };
@@ -259,6 +278,7 @@ $('#cgCuerpo').addEventListener('click', (e) => {
   if (r.error) return avisar(r.error);
   const fecha = $('#cgFecha').value || claveFecha(new Date());
   if (cargando.tipo === 'dj' && r.det.cajonCm) guardado.escribir('cajon', r.det.cajonCm);
+  if (cargando.tipo === 'cmj' && r.det.empujeCm) guardado.escribir('empuje', r.det.empujeCm);
   const reg = agregarRegistro({ tipo: cargando.tipo, valor: r.valor, fecha, det: r.det, nota: $('#cgNota').value.trim() });
   cerrarHoja();
   avisoGuardado(reg, r.aviso);
@@ -267,7 +287,9 @@ $('#cgCuerpo').addEventListener('click', (e) => {
 $('#cgCuerpo').addEventListener('input', () => {
   const est = $('#cgEstimado'); if (!est) return;
   const r = leerCargar();
-  if (!r.error) est.textContent = `${cargando.tipo === 'dj' ? 'RSI' : '1RM estimado'}: ${fmt(r.valor, cargando.tipo === 'dj' ? 2 : 1)}${cargando.tipo === 'dj' ? '' : ' kg'}. ${r.aviso || ''}`;
+  if (r.error) return;
+  if (cargando.tipo === 'cmj') est.textContent = filasSalto(r.det).filter(([n]) => n !== 'Altura').map(([n, x]) => `${n}: ${x}`).join(' · ');
+  else est.textContent = `${cargando.tipo === 'dj' ? 'RSI' : '1RM estimado'}: ${fmt(r.valor, cargando.tipo === 'dj' ? 2 : 1)}${cargando.tipo === 'dj' ? '' : ' kg'}. ${r.aviso || ''}`;
 });
 function avisoGuardado(reg, extra) {
   const M = METRICAS[reg.tipo];
@@ -280,6 +302,75 @@ function avisoGuardado(reg, extra) {
    Medidor con video: marcás cuadros del video y salen el vuelo, el contacto o la velocidad.
    ====================================================================== */
 const G = 9.81;
+
+/* ---------- datos de un salto ---------- */
+// Todo sale del vuelo (tv, s) y, en el drop jump, del contacto (tc, s). m = peso corporal (kg), hpo = distancia de empuje (m).
+// Altura = g·tv²/8 · velocidad de despegue = g·tv/2 · velocidad media del empuje = la mitad · impulso = m·v.
+// Fuerza y potencia por el método de Samozino (necesita hpo). Rigidez vertical por la fórmula de Dalleau.
+function pesoCorporal(fecha = claveFecha(new Date())) {
+  const l = de('peso').filter((r) => r.fecha <= fecha);
+  return l.length ? l[l.length - 1].valor : null;
+}
+function datosSalto(tv, { tc, m, hpo } = {}) {
+  const h = G * tv * tv / 8, v = G * tv / 2;
+  const d = { alturaCm: h * 100, vueloMs: tv * 1000, vDespegue: v, vMedia: v / 2 };
+  if (m > 0) { d.pesoKg = m; d.impulso = m * v; }
+  if (m > 0 && hpo > 0) {
+    d.empujeCm = hpo * 100;
+    d.fuerza = m * G * (h / hpo + 1);
+    d.potencia = d.fuerza * v / 2;
+  }
+  if (tc > 0) {
+    d.contactoMs = tc * 1000;
+    d.rsi = tv / tc;
+    d.rsiAltura = h / tc;
+    if (m > 0) d.rigidez = m * Math.PI * (tv + tc) / (tc * tc * ((tv + tc) / Math.PI - tc / 4)) / 1000;
+  }
+  return d;
+}
+// Las filas para mostrar: [nombre, valor]. Las que no se pueden calcular no aparecen.
+function filasSalto(d) {
+  const f = [];
+  const y = (nombre, v, txt) => { if (Number.isFinite(v)) f.push([nombre, txt(v)]); };
+  y('Altura', d.alturaCm, (v) => fmt(v, 1) + ' cm');
+  y('Vuelo', d.vueloMs, (v) => fmt(v, 0) + ' ms');
+  y('Contacto', d.contactoMs, (v) => fmt(v, 0) + ' ms');
+  y('RSI altura ÷ contacto', d.rsiAltura, (v) => fmt(v, 2) + ' m/s');
+  if (!(d.contactoMs > 0)) { // el drop jump no las muestra
+    y('Velocidad de despegue', d.vDespegue, (v) => fmt(v, 2) + ' m/s');
+    y('Velocidad media', d.vMedia, (v) => fmt(v, 2) + ' m/s');
+    y('Impulso', d.impulso, (v) => fmt(v, 1) + ' kg·m/s');
+  }
+  y('Fuerza', d.fuerza, (v) => fmt(v, 0) + ' N');
+  y('Fuerza relativa', d.fuerza / d.pesoKg, (v) => fmt(v, 1) + ' N/kg');
+  y('Potencia', d.potencia, (v) => fmt(v, 0) + ' W');
+  y('Potencia relativa', d.potencia / d.pesoKg, (v) => fmt(v, 1) + ' W/kg');
+  y('Rigidez vertical', d.rigidez, (v) => fmt(v, 1) + ' kN/m');
+  y('Cajón', d.cajonCm, (v) => fmt(v, 0) + ' cm');
+  return f;
+}
+function notasSalto(d, tipo) {
+  const n = [];
+  if (!d.pesoKg) n.push(`Cargá tu peso en Medir para calcular ${tipo === 'dj' ? 'la rigidez' : 'el impulso, la fuerza y la potencia'}.`);
+  else if (tipo === 'cmj' && !d.empujeCm) n.push('Para la fuerza y la potencia, poné la distancia de empuje.');
+  return n;
+}
+
+// El RSI del drop jump pasó a ser vuelo ÷ contacto (27/11/2026). Los guardados antes con altura ÷ contacto se recalculan una vez.
+if (!guardado.leer('rsiVuelo', false)) {
+  let n = 0;
+  registros.forEach((r) => {
+    if (r.tipo !== 'dj' || !r.det) return;
+    const tc = r.det.contactoMs / 1000;
+    const tv = r.det.vueloMs ? r.det.vueloMs / 1000 : r.det.alturaCm ? Math.sqrt(8 * r.det.alturaCm / 100 / G) : NaN;
+    if (!(tc > 0 && tv > 0)) return;
+    r.det.rsiAltura = r.valor;
+    r.valor = Math.round(tv / tc * 100) / 100;
+    n++;
+  });
+  if (n) guardar();
+  guardado.escribir('rsiVuelo', true);
+}
 const video = $('#vdVideo');
 const escenario = $('#vdEscenario');
 const PRUEBAS = {
@@ -533,19 +624,26 @@ function calcular() {
     return r;
   }
   const nf = k.ld - k.to, tv = nf / fps, hcm = (G * tv * tv) / 8 * 100, err = (G * tv / 4) / fps * 100;
+  const peso = pesoCorporal();
   if (m.tipo === 'dj') {
-    const nc = k.to - k.ct, tc = nc / fps, rsi = (hcm / 100) / tc, caj = aNumero($('#vdCajon') ? $('#vdCajon').value : guardado.leer('cajon', 30));
-    r.principal = { v: fmt(rsi, 2), unidad: 'RSI', etiqueta: 'Índice de fuerza reactiva (altura ÷ contacto)' };
-    r.baldosas.push(['Altura', fmt(hcm, 1) + ' cm'], ['Contacto', fmt(tc * 1000, 0) + ' ms'], ['Vuelo', fmt(tv * 1000, 0) + ' ms'], ['Cajón', fmt(caj, 0) + ' cm']);
-    r.valor = rsi;
-    r.det = { alturaCm: hcm, vueloMs: tv * 1000, contactoMs: tc * 1000, cajonCm: Number.isFinite(caj) ? caj : null, resumen: `${fmt(hcm, 1)} cm · contacto ${fmt(tc * 1000, 0)} ms · cajón ${fmt(caj, 0)} cm · video` };
+    const nc = k.to - k.ct, tc = nc / fps, caj = aNumero($('#vdCajon') ? $('#vdCajon').value : guardado.leer('cajon', 30));
+    const d = datosSalto(tv, { tc, m: peso });
+    d.cajonCm = Number.isFinite(caj) ? caj : null;
+    r.principal = { v: fmt(d.rsi, 2), unidad: 'RSI', etiqueta: 'Índice de fuerza reactiva (vuelo ÷ contacto)' };
+    r.baldosas = filasSalto(d);
+    r.valor = d.rsi;
+    r.det = { ...d, resumen: `${fmt(hcm, 1)} cm · vuelo ${fmt(tv * 1000, 0)} ms · contacto ${fmt(tc * 1000, 0)} ms · cajón ${fmt(caj, 0)} cm · video` };
+    r.notas.push(...notasSalto(d, 'dj'));
     if (tc < 0.08 || tc > 0.6) r.notas.push(`El contacto dura ${fmt(tc * 1000, 0)} ms. Lo común está entre 150 y 400 ms. Revisá la marca de contacto.`);
     if (rampa(k.ct, k.ld)) r.notas.push(noConfiable);
   } else {
+    const emp = aNumero($('#vdEmpuje') ? $('#vdEmpuje').value : guardado.leer('empuje', ''));
+    const d = datosSalto(tv, { m: peso, hpo: emp > 0 ? emp / 100 : null });
     r.principal = { v: fmt(hcm, 1), unidad: 'cm', etiqueta: 'Altura del salto' };
-    r.baldosas.push(['Vuelo', fmt(tv * 1000, 0) + ' ms'], ['Cuadros', String(nf)], ['Margen', '±' + fmt(err, 1) + ' cm']);
+    r.baldosas = filasSalto(d).filter(([n]) => n !== 'Altura').concat([['Margen', '±' + fmt(err, 1) + ' cm']]);
     r.valor = hcm;
-    r.det = { vueloMs: tv * 1000, resumen: `vuelo ${fmt(tv * 1000, 0)} ms · video` };
+    r.det = { ...d, resumen: `vuelo ${fmt(tv * 1000, 0)} ms · video` };
+    r.notas.push(...notasSalto(d, 'cmj'));
     if (rampa(k.to, k.ld)) r.notas.push(noConfiable);
   }
   if (tv < 0.25 || tv > 0.9) r.notas.push(`El vuelo dura ${fmt(tv * 1000, 0)} ms. Un salto común vuela entre 400 y 650 ms. ¿Marcaste en la parte lenta del video?`);
@@ -555,6 +653,7 @@ function abrirResultado() {
   const m = V.m;
   const f = $('#vdCampos');
   if (m.tipo === 'dj') f.innerHTML = `<label>Altura del cajón (cm)<input id="vdCajon" type="number" inputmode="decimal" value="${esc(guardado.leer('cajon', 30))}"></label>`;
+  else if (m.tipo === 'cmj') f.innerHTML = campoEmpuje('vdEmpuje');
   else if (m.tipo === 'sq') f.innerHTML = `<label>Recorrido de la barra (cm)<input id="vdRecorrido" type="number" inputmode="decimal" step="0.5" value="${esc(guardado.leer('recorrido', 55))}"></label>
     <label>Carga (kg)<input id="vdCarga" type="number" inputmode="decimal" step="0.5" placeholder="100"></label>`;
   else f.innerHTML = '';
@@ -565,6 +664,7 @@ function abrirResultado() {
 }
 $('#vdCampos').addEventListener('input', (e) => {
   if (e.target.id === 'vdCajon') guardado.escribir('cajon', aNumero(e.target.value) || 30);
+  if (e.target.id === 'vdEmpuje') guardado.escribir('empuje', aNumero(e.target.value) || '');
   if (e.target.id === 'vdRecorrido') guardado.escribir('recorrido', aNumero(e.target.value) || 55);
   pintarResultado();
 });
