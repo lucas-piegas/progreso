@@ -616,9 +616,9 @@ function pintarGasto() {
 }
 $('#gastoDia').addEventListener('click', (e) => { if (e.target.id === 'abrirGasto') abrirGasto(claveFecha(fecha)); });
 
-let gastoFoto = null;
+let gastoFoto = null, gastoArchivo = null;
 function abrirGasto(k) {
-  gastoFoto = null;
+  gastoFoto = null; gastoArchivo = null;
   const g = gastos[k] || {};
   $('#gaVista').hidden = true; $('#gaLeer').hidden = true; $('#gaEstado').textContent = ''; $('#gaAviso').textContent = '';
   $('#gaFecha').value = k;
@@ -629,18 +629,110 @@ function abrirGasto(k) {
 $('#gaArchivo').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   try {
+    gastoArchivo = f;
     gastoFoto = await achicarFoto(f);
     $('#gaVista').src = gastoFoto; $('#gaVista').hidden = false; $('#gaLeer').hidden = false;
     $('#gaEstado').textContent = '';
+    leerCaptura(); // leer en el teléfono no cuesta nada: arranca solo
   } catch (e) { avisar('No se pudo leer la imagen'); }
   ev.target.value = '';
 };
-$('#gaLeer').onclick = async () => {
-  if (!confFoto.url || !confFoto.clave) guardarConfFoto();
-  if (!confFoto.url || !confFoto.clave) return avisar('Primero cargá la dirección y la clave en Comida → Objetivo y alimentos');
-  const boton = $('#gaLeer');
+
+/* Lectura sin IA: Tesseract.js lee el texto de la captura dentro del teléfono (gratis, sin servidor).
+   La primera vez baja el lector (unos MB) y después queda guardado. Claude queda de respaldo. */
+const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let lectorOcr = null;
+function cargarOcr() {
+  if (!lectorOcr) {
+    lectorOcr = new Promise((ok, mal) => {
+      if (window.Tesseract) return ok();
+      const sc = document.createElement('script');
+      sc.src = TESSERACT; sc.onload = ok; sc.onerror = () => mal(new Error('no se pudo bajar el lector de texto'));
+      document.head.appendChild(sc);
+    }).then(() => window.Tesseract.createWorker('eng'));
+    lectorOcr.catch(() => { lectorOcr = null; });
+  }
+  return lectorOcr;
+}
+// Gris y, si la captura es oscura (Zepp en modo oscuro), invertida: el OCR lee mejor letra oscura sobre fondo claro.
+async function prepararParaOcr(archivo) {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; });
+    const escala = Math.min(1, 1600 / img.naturalWidth);
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * escala); c.height = Math.round(img.naturalHeight * escala);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const datos = ctx.getImageData(0, 0, c.width, c.height), px = datos.data;
+    let suma = 0;
+    for (let i = 0; i < px.length; i += 4) { const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; px[i] = px[i + 1] = px[i + 2] = g; suma += g; }
+    if (suma / (px.length / 4) < 128) for (let i = 0; i < px.length; i += 4) px[i] = px[i + 1] = px[i + 2] = 255 - px[i];
+    ctx.putImageData(datos, 0, 0);
+    return c;
+  } finally { URL.revokeObjectURL(url); }
+}
+// Saca del texto de la pantalla Calorías de Zepp: actividad, reposo y la fecha («Nov 26»).
+const MESES = { jan: 1, ene: 1, feb: 2, mar: 3, apr: 4, abr: 4, may: 5, jun: 6, jul: 7, aug: 8, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dec: 12, dic: 12 };
+function interpretarZepp(texto) {
+  const t = texto.replace(/\s+/g, ' ');
+  const numero = (etiqueta, min, max) => {
+    const m = t.match(new RegExp('(?:' + etiqueta + ')[^0-9]{0,40}?(\\d{1,3}(?:[.,]\\d{3})+|\\d+)', 'i'));
+    if (!m) return null;
+    const v = +m[1].replace(/[.,]/g, '');
+    return v >= min && v <= max ? v : null;
+  };
+  const actividad = numero('activ\\w*\\s*consum\\w*|consumo\\s+(?:de\\s+)?activ\\w*', 0, 6000);
+  const reposo = numero('rest\\w*\\s*consum\\w*|consumo\\s+(?:en\\s+|de\\s+)?(?:reposo|descanso)', 400, 5000);
+  let fecha = null;
+  const m1 = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/i);
+  const m2 = t.match(/\b(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\b/i);
+  const mes = m1 ? MESES[m1[1].toLowerCase()] : m2 ? MESES[m2[2].toLowerCase()] : null;
+  const dia = m1 ? +m1[2] : m2 ? +m2[1] : null;
+  if (mes && dia >= 1 && dia <= 31) {
+    const hoy = new Date();
+    let d = new Date(hoy.getFullYear(), mes - 1, dia);
+    if (d > hoy) d = new Date(hoy.getFullYear() - 1, mes - 1, dia); // una captura de diciembre leída en enero
+    fecha = claveFecha(d);
+  }
+  return { actividad, reposo, fecha };
+}
+async function leerConOcr(archivo) {
+  const lector = await cargarOcr();
+  const { data } = await lector.recognize(await prepararParaOcr(archivo));
+  return interpretarZepp(data.text);
+}
+function ponerFecha(k, diaCompleto) {
+  $('#gaFecha').value = k;
+  $('#gaFecha').dataset.diaCompleto = String(diaCompleto);
+  $('#gaAviso').textContent = diaCompleto ? '' : 'Es la captura de hoy: el día no terminó.';
+}
+
+async function leerCaptura() {
+  if (!gastoArchivo) return;
+  const boton = $('#gaLeer'), estado = $('#gaEstado');
   boton.disabled = true; boton.textContent = 'Leyendo…';
-  $('#gaEstado').textContent = 'Claude está leyendo la captura. Tarda unos segundos.';
+  estado.textContent = lectorOcr ? 'Leyendo la captura en el teléfono…' : 'Leyendo la captura en el teléfono. La primera vez baja el lector de texto y tarda un poco más.';
+  let ocr = null, falla = '';
+  try { ocr = await leerConOcr(gastoArchivo); } catch (e) { falla = e.message; }
+  if (ocr) {
+    if (ocr.reposo != null) $('#gaReposo').value = ocr.reposo;
+    if (ocr.actividad != null) $('#gaActividad').value = ocr.actividad;
+    if (ocr.fecha) ponerFecha(ocr.fecha, ocr.fecha < claveFecha(new Date()));
+  }
+  if (ocr && ocr.reposo != null && ocr.actividad != null) {
+    estado.textContent = `Leído en el teléfono, sin IA.${ocr.fecha ? '' : ' No encontré la fecha: revisala.'} Revisá los números antes de guardar.`;
+    boton.disabled = false; boton.textContent = 'Leer de nuevo';
+    return;
+  }
+  // Respaldo: Claude, solo si el lector no encontró los dos números.
+  if (!confFoto.url || !confFoto.clave) guardarConfFoto();
+  if (!confFoto.url || !confFoto.clave) {
+    estado.textContent = `No encontré ${ocr && ocr.reposo == null ? 'el reposo' : 'todos los números'} en la captura${falla ? ' (' + falla + ')' : ''}. Escribilos a mano.`;
+    boton.disabled = false; boton.textContent = 'Leer de nuevo';
+    return;
+  }
+  estado.textContent = 'No encontré todos los números. Claude está leyendo la captura. Tarda unos segundos.';
   try {
     const r = await fetch(confFoto.url + '/gasto', {
       method: 'POST',
@@ -649,14 +741,15 @@ $('#gaLeer').onclick = async () => {
     });
     const d = await r.json().catch(() => ({ error: 'Respuesta inválida (' + r.status + ')' }));
     if (!r.ok) throw new Error(d.error || 'Error ' + r.status);
-    $('#gaFecha').value = d.fecha; $('#gaReposo').value = d.reposo || ''; $('#gaActividad').value = d.actividad ?? '';
-    $('#gaFecha').dataset.diaCompleto = String(d.dia_completo);
-    $('#gaEstado').textContent = 'Revisá los números y la fecha antes de guardar.';
-    $('#gaAviso').textContent = [d.dia_completo ? '' : 'Es la captura de hoy: el día no terminó.', d.notas].filter(Boolean).join(' ');
+    $('#gaReposo').value = d.reposo || ''; $('#gaActividad').value = d.actividad ?? '';
+    ponerFecha(d.fecha, d.dia_completo);
+    if (d.notas) $('#gaAviso').textContent = [$('#gaAviso').textContent, d.notas].filter(Boolean).join(' ');
+    estado.textContent = 'La leyó Claude. Revisá los números y la fecha antes de guardar.';
   } catch (e) {
-    $('#gaEstado').textContent = 'No se pudo leer: ' + e.message + '. Podés escribir los números a mano.';
-  } finally { boton.disabled = false; boton.textContent = 'Leer la captura'; }
-};
+    estado.textContent = 'No se pudo leer: ' + e.message + '. Podés escribir los números a mano.';
+  } finally { boton.disabled = false; boton.textContent = 'Leer de nuevo'; }
+}
+$('#gaLeer').onclick = leerCaptura;
 $('#gaGuardar').onclick = () => {
   const k = $('#gaFecha').value;
   const reposo = Math.round(aNumero($('#gaReposo').value)) || 0;
