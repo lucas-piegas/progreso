@@ -385,7 +385,25 @@ function guardarConfFoto() {
   $('#fotoConfigurada').textContent = confFoto.url && confFoto.clave ? '✓ Configurado' : 'Faltan datos';
 }
 ['#ajFotoUrl', '#ajFotoClave'].forEach((s) => { $(s).addEventListener('input', guardarConfFoto); $(s).addEventListener('change', guardarConfFoto); });
-$('#guardarFoto').onclick = () => { guardarConfFoto(); avisar(confFoto.url && confFoto.clave ? 'Guardado' : 'Faltan la dirección o la clave'); };
+// Prueba la dirección y la clave sin gastar IA: un pedido sin foto. El intermediario revisa la clave
+// antes que nada; con la clave buena contesta «falta la foto» (400) y nunca llega a llamar a Claude.
+async function probarClave() {
+  const caja = $('#fotoConfigurada');
+  if (!confFoto.url || !confFoto.clave) { caja.textContent = 'Faltan la dirección o la clave'; return; }
+  caja.textContent = 'Probando la clave…';
+  let r;
+  try {
+    r = await fetch(confFoto.url + '/analizar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + confFoto.clave }, body: '{}' });
+  } catch (e) {
+    caja.textContent = '✗ No pude conectar con esa dirección. Revisá la dirección y la conexión.';
+    return;
+  }
+  caja.textContent = r.status === 400 ? '✓ La clave es correcta' :
+    r.status === 401 ? '✗ La clave no es correcta. Revisala: distingue mayúsculas y minúsculas.' :
+    r.status === 404 ? '✗ Esa dirección no es la del intermediario.' :
+    `✗ El intermediario contestó un error (${r.status}). Probá de nuevo más tarde.`;
+}
+$('#guardarFoto').onclick = () => { guardarConfFoto(); probarClave(); };
 $('#fotoConfigurada').textContent = confFoto.url && confFoto.clave ? '✓ Configurado' : '';
 function elegirModelo(m) {
   confFoto.modelo = m; guardado.escribir('foto', confFoto);

@@ -7,7 +7,8 @@
 ## 2026-11-27 — La captura de Zepp se lee sin IA
 
 - **Hecho:** «Gasto del día» lee la captura con Tesseract.js (OCR) en el teléfono, gratis: gris, invertida si es oscura, y busca «Activity consumption», «Resting Consumption» y la fecha («Nov 26»). Arranca sola al elegir la captura. Sin respaldo con IA (decisión de Lucas): lo que no encuentra se escribe a mano. El pedido `/gasto` del intermediario quedó sin uso.
-- **Dónde quedó:** `main` (`progreso-v7`). Probado con la captura real del 26/11: 46 y 1.420 kcal en 2,5 s.
+- **Además:** «Guardar y probar la clave» (Foto del plato) prueba dirección y clave con un pedido sin foto: el intermediario contesta 401 si la clave está mal y 400 si está bien, sin llamar a Claude.
+- **Dónde quedó:** `main` (`progreso-v8`). Probado con la captura real del 26/11: 46 y 1.420 kcal en 2,5 s.
 - **Abierto:** probarlo en el iPhone; la primera vez baja unos MB del lector (jsdelivr y tessdata).
 - **No rehacer:** la etiqueta del regex va entre `(?:…)`: sin eso el `|` deja el número fuera del grupo. El `<script>` de jsdelivr llega como respuesta opaca: el service worker la guarda igual (caché `progreso-externo`).
 - **Detalle:** `app/comida.js` (`interpretarZepp`, `leerCaptura`), `app/sw.js`.
