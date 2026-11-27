@@ -346,6 +346,8 @@ function filasSalto(d) {
   y('Potencia', d.potencia, (v) => fmt(v, 0) + ' W');
   y('Potencia relativa', d.potencia / d.pesoKg, (v) => fmt(v, 1) + ' W/kg');
   y('Rigidez vertical', d.rigidez, (v) => fmt(v, 1) + ' kN/m');
+  // DRI (Dynamic Rebound Index, Brooks 2026, el de My Jump Lab): (cajón + altura) ÷ (g · contacto²). Suma la caída: compara cajones distintos.
+  if (d.contactoMs > 0 && d.cajonCm > 0 && d.alturaCm > 0) y('DRI', (d.cajonCm / 100 + d.alturaCm / 100) / (G * (d.contactoMs / 1000) ** 2), (v) => fmt(v, 2));
   y('Cajón', d.cajonCm, (v) => fmt(v, 0) + ' cm');
   return f;
 }

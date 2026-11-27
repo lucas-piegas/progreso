@@ -8,9 +8,9 @@
 
 - **Hecho:** «Gasto del día» lee la captura con Tesseract.js (OCR) en el teléfono, gratis: gris, invertida si es oscura, y busca «Activity consumption», «Resting Consumption» y la fecha («Nov 26»). Arranca sola al elegir la captura. Sin respaldo con IA (decisión de Lucas): lo que no encuentra se escribe a mano. El pedido `/gasto` del intermediario quedó sin uso.
 - **Además:** «Guardar y probar la clave» (Foto del plato) prueba dirección y clave con un pedido sin foto: el intermediario contesta 401 si la clave está mal y 400 si está bien, sin llamar a Claude.
-- **Saltos:** el CMJ y el DJ guardan los datos de la app de saltos de Lucas: vuelo, velocidades de despegue y media, impulso (peso de Medir), fuerza y potencia por Samozino (con la distancia de empuje), y en el DJ contacto y rigidez (Dalleau). El RSI pasó a ser vuelo ÷ contacto (decisión de Lucas, para comparar con esa app); los DJ viejos se recalculan una vez (`me.rsiVuelo`) y guardan el anterior en `det.rsiAltura`.
-- **Dónde quedó:** `main` (`progreso-v9`). Probado con la captura real del 26/11: 46 y 1.420 kcal en 2,5 s.
-- **Abierto:** el DRI de la app de saltos (1,72) no se sabe cómo se calcula: falta preguntar. Probar en el iPhone; la primera vez baja unos MB del lector (jsdelivr y tessdata).
+- **Saltos:** el CMJ y el DJ guardan los datos de la app de saltos de Lucas: vuelo, velocidades de despegue y media, impulso (peso de Medir), fuerza y potencia por Samozino (con la distancia de empuje), y en el DJ contacto y rigidez (Dalleau). El RSI pasó a ser vuelo ÷ contacto (decisión de Lucas, para comparar con esa app); los DJ viejos se recalculan una vez (`me.rsiVuelo`) y guardan el anterior en `det.rsiAltura`. Las fórmulas son las de My Jump Lab: Samozino en el CMJ; en el DJ, rigidez de Dalleau y DRI de Brooks = (cajón + altura) ÷ (g · contacto²), que compara cajones distintos.
+- **Dónde quedó:** `main` (`progreso-v10`). Probado con la captura real del 26/11: 46 y 1.420 kcal en 2,5 s.
+- **Abierto:** confirmar con Lucas la altura del cajón de su captura (el DRI 1,72 cuadra con unos 60 cm). Probar en el iPhone; la primera vez baja unos MB del lector (jsdelivr y tessdata).
 - **No rehacer:** la etiqueta del regex va entre `(?:…)`: sin eso el `|` deja el número fuera del grupo. El `<script>` de jsdelivr llega como respuesta opaca: el service worker la guarda igual (caché `progreso-externo`).
 - **Detalle:** `app/comida.js` (`interpretarZepp`, `leerCaptura`), `app/sw.js`.
 
